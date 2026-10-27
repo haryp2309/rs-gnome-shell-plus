@@ -3,10 +3,13 @@
 #include "shellplus-plugin.h"
 
 #include <cairo.h>
+#include <math.h>
 #include <meta/compositor.h>
 #include <meta/display.h>
 #include <meta/meta-backend.h>
 #include <meta/meta-context.h>
+#include <meta/meta-backlight.h>
+#include <meta/meta-monitor.h>
 #include <meta/meta-monitor-manager.h>
 #include <meta/meta-wayland-client.h>
 #include <meta/meta-window-actor.h>
@@ -52,6 +55,9 @@ struct _ShellPlusPlugin
   guint resample_id;
   guint workspace_check_id;
 
+  MetaBacklight *backlight;
+  gulong backlight_notify_id;
+
   gboolean solid;
   char *color;
   GVariant *last_state;
@@ -88,6 +94,22 @@ get_primary_geometry (ShellPlusPlugin *self,
   return TRUE;
 }
 
+/* Brightness normalized to 0..1, or -1 when there's no controllable backlight. */
+static double
+get_brightness (ShellPlusPlugin *self)
+{
+  int min, max;
+
+  if (!self->backlight)
+    return -1.0;
+
+  meta_backlight_get_brightness_info (self->backlight, &min, &max);
+  if (max <= min)
+    return -1.0;
+
+  return (double) (meta_backlight_get_brightness (self->backlight) - min) / (max - min);
+}
+
 /* ------------------------------------------------------------------------ */
 /* Panel state published over D-Bus                                         */
 
@@ -112,6 +134,8 @@ build_state (ShellPlusPlugin *self)
   g_variant_builder_add (&builder, "{sv}", "monitor",
                          g_variant_new ("(iiii)", monitor.x, monitor.y,
                                         monitor.width, monitor.height));
+  g_variant_builder_add (&builder, "{sv}", "brightness",
+                         g_variant_new_double (get_brightness (self)));
   return g_variant_builder_end (&builder);
 }
 
@@ -161,11 +185,27 @@ dbus_log_out (gpointer user_data)
   meta_context_terminate (meta_display_get_context (display));
 }
 
+static void
+dbus_set_brightness (gpointer user_data,
+                     double   value)
+{
+  ShellPlusPlugin *self = user_data;
+  int min, max;
+
+  if (!self->backlight)
+    return;
+
+  meta_backlight_get_brightness_info (self->backlight, &min, &max);
+  meta_backlight_set_brightness (self->backlight,
+                                 min + (int) round (CLAMP (value, 0.0, 1.0) * (max - min)));
+}
+
 static const ShellPlusDBusHandlers dbus_handlers = {
   .get_state = dbus_get_state,
   .activate_workspace = dbus_activate_workspace,
   .toggle_overview = dbus_toggle_overview,
   .log_out = dbus_log_out,
+  .set_brightness = dbus_set_brightness,
 };
 
 /* ------------------------------------------------------------------------ */
@@ -640,9 +680,41 @@ on_workspaces_changed (ShellPlusPlugin *self)
   queue_workspace_check (self);
 }
 
+/* Like GNOME Shell, control the built-in panel's backlight, falling back
+ * to any monitor that has one (e.g. DDC/CI externals). */
+static void
+update_backlight (ShellPlusPlugin *self)
+{
+  MetaBackend *backend =
+    meta_context_get_backend (meta_display_get_context (get_display (self)));
+  MetaMonitorManager *monitor_manager = meta_backend_get_monitor_manager (backend);
+  MetaBacklight *found = NULL;
+  GList *l;
+
+  for (l = meta_monitor_manager_get_monitors (monitor_manager); l; l = l->next)
+    {
+      MetaBacklight *backlight = meta_monitor_get_backlight (l->data);
+
+      if (backlight && (!found || meta_monitor_is_builtin (l->data)))
+        found = backlight;
+    }
+
+  if (found == self->backlight)
+    return;
+
+  g_clear_signal_handler (&self->backlight_notify_id, self->backlight);
+  g_set_object (&self->backlight, found);
+  if (found)
+    self->backlight_notify_id =
+      g_signal_connect_swapped (found, "notify", G_CALLBACK (publish_state), self);
+
+  publish_state (self);
+}
+
 static void
 on_monitors_changed (ShellPlusPlugin *self)
 {
+  update_backlight (self);
   sync_panel_geometry (self);
   update_struts (self);
   queue_update (self);
@@ -681,6 +753,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   g_signal_connect_object (self->mutter_settings, "changed::dynamic-workspaces",
                            G_CALLBACK (queue_workspace_check), self, G_CONNECT_SWAPPED);
 
+  update_backlight (self);
   spawn_panel (self);
   queue_workspace_check (self);
   queue_update (self);
@@ -713,6 +786,8 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_pointer (&self->dbus, shellplus_dbus_free);
   g_clear_pointer (&self->background, shellplus_background_free);
   g_clear_pointer (&self->last_state, g_variant_unref);
+  g_clear_signal_handler (&self->backlight_notify_id, self->backlight);
+  g_clear_object (&self->backlight);
   g_clear_object (&self->panel_client);
   g_clear_object (&self->panel_constraint);
   g_clear_object (&self->mutter_settings);

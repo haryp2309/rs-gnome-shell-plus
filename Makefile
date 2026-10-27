@@ -9,7 +9,7 @@ DOCKER_RUN  := docker run --rm -v "$(CURDIR)":/src \
 
 PANEL_BIN := $(BUILDDIR)/panel/release/gnome-shell-plus-panel
 
-.PHONY: all compositor panel install uninstall clean dev-image check smoke
+.PHONY: all compositor panel install uninstall clean dev-image check smoke shots
 
 all: compositor panel
 
@@ -45,6 +45,11 @@ dev-image:
 check: dev-image
 	$(DOCKER_RUN) sh -c 'meson setup /tmp/build compositor >/dev/null && ninja -C /tmp/build && cargo build --manifest-path panel/Cargo.toml'
 
-# Boot the compositor headless and screenshot the panel into dev/out/.
-smoke: dev-image
-	$(DOCKER_RUN) dev/smoke-test.sh
+# Boot a headless session (mocked services, fake audio) and run a scenario
+# from dev/scenarios/, saving screenshots to dev/out/<scenario>/.
+SCENARIO ?= quick_settings
+shots: dev-image
+	$(DOCKER_RUN) dev/session.sh $(SCENARIO)
+
+smoke:
+	$(MAKE) shots SCENARIO=smoke

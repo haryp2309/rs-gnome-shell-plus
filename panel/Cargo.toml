@@ -8,6 +8,8 @@ license = "GPL-2.0-or-later"
 [dependencies]
 gtk = { package = "gtk4", version = "0.11", features = ["v4_16"] }
 adw = { package = "libadwaita", version = "0.9", features = ["v1_6"] }
+libpulse-binding = "2"
+libpulse-glib-binding = "2"
 
 [profile.release]
 lto = "thin"

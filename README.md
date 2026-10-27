@@ -105,16 +105,28 @@ make check
 ```
 
 ```bash
-make smoke
+make shots SCENARIO=quick_settings
 ```
 
 `make check` compiles both parts against the real Fedora 44 stack.
-`make smoke` boots the compositor **headless** inside the container with a
-1280×800 virtual monitor. It screenshots the desktop via Mutter's ScreenCast
-API, opens a maximized libadwaita window, screenshots again, and writes
-everything to `dev/out/` (including `compositor.log`). This runs natively on
-Apple Silicon (aarch64) and is the fast inner loop for visual changes. It
-isn't interactive, though: you can't click anything.
+
+`make shots` boots a complete headless session inside the container
+(`dev/session.sh`) and runs a scenario script from `dev/scenarios/`, saving
+screenshots and logs to `dev/out/<scenario>/`. The session has:
+
+- a 1280×800 virtual monitor, captured through Mutter's ScreenCast API;
+- a fake system bus with mocked NetworkManager (Wi-Fi networks, Ethernet),
+  BlueZ (paired devices), UPower (battery), power-profiles-daemon and
+  gsd-rfkill (`dev/mocks.py`, using python-dbusmock);
+- PipeWire with fake speakers, headphones and a microphone;
+- real pointer and keyboard input through Mutter's RemoteDesktop API
+  (`Session.click`, `Session.key` in `dev/driver.py`);
+- the panel's test-only D-Bus hook (`SHELLPLUS_PANEL_DEBUG=1`, see
+  `panel/src/debug.rs`), which opens menus and presses buttons by widget name.
+
+`make smoke` is the minimal scenario (translucent bar, then solid with a
+maximized window). Everything runs natively on Apple Silicon (aarch64) and
+is the fast inner loop for development.
 
 ### 2. A Linux VM: full interactive testing (recommended for real use)
 
@@ -154,13 +166,21 @@ UTM's VirtFS, or `git pull` inside the VM).
 
 ## Status / not yet implemented
 
-This is a starting point. Missing compared to GNOME Shell:
+Done:
 
-- overview, app grid, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
-- Alt-Tab switcher, window animations, OSDs
+- top bar: workspace indicator, clock + calendar menu, translucent/solid modes
+- quick settings: volume and microphone (with device menus), brightness,
+  Wi-Fi (network list), Wired, Bluetooth (devices), Power Mode, Night Light,
+  Dark Style, Airplane Mode, battery, power menu with confirmation dialogs
+
+Missing compared to GNOME Shell:
+
+- overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
+- Alt-Tab switcher, window animations, volume/brightness OSDs
 - notifications (the date menu shows the empty state and the Do Not Disturb switch)
-- lock screen, polkit agent, end-session dialogs, on-screen keyboard
-- Wi-Fi network list, Bluetooth, brightness, VPN; volume is polled from `wpctl`
+- lock screen, polkit agent, Wi-Fi password prompts, keyring prompts, on-screen keyboard
+- keyboard layout indicator / input source switching, screenshot UI
+- VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters
 - XML wallpaper slideshows (the first image is used)
 - panel only on the primary monitor (as in GNOME Shell)
 

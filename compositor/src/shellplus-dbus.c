@@ -11,6 +11,7 @@
  *   active-workspace  i
  *   n-workspaces      i
  *   monitor           (iiii) primary monitor x, y, width, height
+ *   brightness        d     backlight 0..1, or -1 if there is none
  */
 static const char introspection_xml[] =
   "<node>"
@@ -23,6 +24,9 @@ static const char introspection_xml[] =
   "    </method>"
   "    <method name='ToggleOverview'/>"
   "    <method name='LogOut'/>"
+  "    <method name='SetBrightness'>"
+  "      <arg type='d' name='value' direction='in'/>"
+  "    </method>"
   "    <signal name='StateChanged'>"
   "      <arg type='a{sv}' name='state'/>"
   "    </signal>"
@@ -76,6 +80,14 @@ handle_method_call (GDBusConnection       *connection,
     {
       g_dbus_method_invocation_return_value (invocation, NULL);
       self->handlers.log_out (self->user_data);
+    }
+  else if (g_strcmp0 (method_name, "SetBrightness") == 0)
+    {
+      double value;
+
+      g_variant_get (parameters, "(d)", &value);
+      self->handlers.set_brightness (self->user_data, value);
+      g_dbus_method_invocation_return_value (invocation, NULL);
     }
   else
     {

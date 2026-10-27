@@ -82,24 +82,134 @@ popover.panel-menu > contents {
   margin-left: 12px;
 }
 
-.quick-settings .quick-action {
+/* Quick settings, modelled on GNOME Shell's quick settings menu. */
+.quick-settings {
+  padding: 6px;
+}
+
+.quick-settings .system-row button.circular {
   min-width: 40px;
   min-height: 40px;
 }
 
-.quick-settings .battery-level {
-  margin-left: 6px;
-}
-
-.quick-toggle {
-  min-height: 48px;
-  padding: 0 16px;
+.quick-settings .system-row .battery-button {
+  padding: 0 14px;
   border-radius: 999px;
+  min-height: 40px;
 }
 
-.quick-toggle:checked {
+/* Pill toggles; split into main + arrow when they have a submenu. */
+.quick-toggle > button {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 999px;
+  background-color: alpha(currentColor, 0.1);
+  box-shadow: none;
+}
+
+.quick-toggle > button:hover {
+  background-color: alpha(currentColor, 0.15);
+}
+
+.quick-toggle > button:active {
+  background-color: alpha(currentColor, 0.2);
+}
+
+.quick-toggle.has-menu > button.main {
+  border-radius: 999px 0 0 999px;
+  padding-right: 8px;
+}
+
+.quick-toggle.has-menu > button.arrow {
+  min-width: 0;
+  margin-left: 1px;
+  padding: 0 12px 0 10px;
+  border-radius: 0 999px 999px 0;
+}
+
+.quick-toggle.checked > button {
   background-color: var(--accent-bg-color);
   color: var(--accent-fg-color);
+}
+
+.quick-toggle.checked > button:hover {
+  background-color: color-mix(in srgb, var(--accent-bg-color), white 10%);
+}
+
+.quick-toggle .title {
+  font-weight: bold;
+}
+
+.quick-toggle .subtitle {
+  font-size: smaller;
+  opacity: 0.8;
+}
+
+/* Submenus revealed under a toggle row or slider. */
+.quick-menu {
+  margin-top: 6px;
+  padding: 12px;
+  border-radius: 18px;
+  background-color: alpha(currentColor, 0.06);
+}
+
+.quick-menu .header {
+  margin: 0 6px 6px 6px;
+}
+
+.quick-menu .header-icon {
+  min-width: 32px;
+  min-height: 32px;
+  border-radius: 999px;
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+.quick-menu .header-title {
+  font-weight: bold;
+  font-size: larger;
+}
+
+.quick-menu .header-subtitle,
+.quick-menu .placeholder {
+  font-size: smaller;
+  opacity: 0.7;
+}
+
+.quick-menu .placeholder {
+  margin: 6px 12px;
+}
+
+.quick-menu separator {
+  margin: 6px 0;
+}
+
+button.menu-item {
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: none;
+  box-shadow: none;
+  font-weight: normal;
+}
+
+button.menu-item:hover {
+  background-color: alpha(currentColor, 0.08);
+}
+
+/* Sliders */
+.quick-slider scale {
+  padding: 12px 6px;
+}
+
+.quick-slider button.arrow {
+  min-width: 32px;
+  min-height: 32px;
+  padding: 0;
+}
+
+/* Panel indicators */
+.status-icons .privacy-indicator {
+  color: #ffa348;
 }
 
 .power-menu button {

@@ -19,6 +19,8 @@ pub struct ShellState {
     pub n_workspaces: i32,
     /// Primary monitor geometry (x, y, width, height) in logical pixels.
     pub monitor: Option<(i32, i32, i32, i32)>,
+    /// Backlight level 0..1, or `None` without a controllable backlight.
+    pub brightness: Option<f64>,
 }
 
 impl Default for ShellState {
@@ -29,6 +31,7 @@ impl Default for ShellState {
             active_workspace: 0,
             n_workspaces: 1,
             monitor: None,
+            brightness: None,
         }
     }
 }
@@ -56,6 +59,9 @@ impl ShellState {
             if monitor.2 > 0 && monitor.3 > 0 {
                 state.monitor = Some(monitor);
             }
+        }
+        if let Ok(Some(brightness)) = dict.lookup::<f64>("brightness") {
+            state.brightness = (brightness >= 0.0).then_some(brightness);
         }
         state
     }
@@ -132,6 +138,10 @@ impl ShellClient {
 
     pub fn activate_workspace(&self, index: i32) {
         self.call("ActivateWorkspace", Some((index,).to_variant()));
+    }
+
+    pub fn set_brightness(&self, value: f64) {
+        self.call("SetBrightness", Some((value,).to_variant()));
     }
 
     pub fn log_out(&self) {

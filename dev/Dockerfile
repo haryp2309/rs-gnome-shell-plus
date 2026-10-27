@@ -6,7 +6,8 @@ RUN dnf -y install \
       gcc meson ninja-build pkgconf-pkg-config cargo rust \
       mutter mutter-devel gtk4-devel libadwaita-devel gsettings-desktop-schemas-devel \
       dbus-daemon dbus-tools mesa-dri-drivers \
-      pipewire wireplumber pipewire-gstreamer \
+      pipewire wireplumber pipewire-gstreamer pipewire-pulseaudio pulseaudio-utils \
+      pulseaudio-libs-devel python3-dbusmock \
       gstreamer1-plugins-base gstreamer1-plugins-good \
       python3-gobject gtk4 libadwaita \
       adwaita-icon-theme gnome-backgrounds jxl-pixbuf-loader glycin-loaders \

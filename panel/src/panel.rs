@@ -9,6 +9,12 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 const FALLBACK_HEIGHT: i32 = 32;
+/// Gap between the bottom of a panel button's pill and its menu. Panel
+/// buttons end 3px above the panel's bottom edge, and the panel's strut
+/// makes Mutter push popups that start inside it down into the work area,
+/// which GTK answers by dropping the popover. 6px clears the panel, like
+/// GNOME Shell's menus.
+const MENU_OFFSET: i32 = 6;
 const TRANSITION_MS: u32 = 250;
 
 pub fn build(app: &adw::Application) -> gtk::ApplicationWindow {
@@ -79,6 +85,17 @@ pub fn build(app: &adw::Application) -> gtk::ApplicationWindow {
     });
 
     window
+}
+
+/// A popover for a panel menu (date menu, quick settings, …).
+pub fn menu_popover(child: &impl IsA<gtk::Widget>) -> gtk::Popover {
+    let popover = gtk::Popover::builder()
+        .child(child)
+        .has_arrow(false)
+        .css_classes(["panel-menu"])
+        .build();
+    popover.set_offset(0, MENU_OFFSET);
+    popover
 }
 
 fn apply_mode(bar: &gtk::CenterBox, color_css: &gtk::CssProvider, fade: &adw::TimedAnimation, state: &ShellState) {

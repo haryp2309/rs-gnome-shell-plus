@@ -18,6 +18,8 @@ typedef struct
                                     int      index);
   void       (*toggle_overview)    (gpointer user_data);
   void       (*log_out)            (gpointer user_data);
+  void       (*set_brightness)     (gpointer user_data,
+                                    double   value);
 } ShellPlusDBusHandlers;
 
 ShellPlusDBus *shellplus_dbus_new (const ShellPlusDBusHandlers *handlers,

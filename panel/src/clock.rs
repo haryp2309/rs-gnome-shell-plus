@@ -8,6 +8,7 @@ use gtk::{gio, glib};
 pub fn build() -> gtk::MenuButton {
     let label = gtk::Label::new(None);
     let button = gtk::MenuButton::builder()
+        .name("clock-button")
         .child(&label)
         .popover(&build_popover())
         .css_classes(["panel-button", "clock"])
@@ -115,11 +116,7 @@ fn build_popover() -> gtk::Popover {
     calendar_column.append(&calendar);
     content.append(&calendar_column);
 
-    let popover = gtk::Popover::builder()
-        .child(&content)
-        .has_arrow(false)
-        .css_classes(["panel-menu"])
-        .build();
+    let popover = crate::panel::menu_popover(&content);
 
     // Jump back to today every time the menu opens.
     popover.connect_show(move |_| {

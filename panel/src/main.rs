@@ -1,4 +1,5 @@
 mod clock;
+mod debug;
 mod ipc;
 mod panel;
 mod quick_settings;
@@ -20,7 +21,10 @@ fn main() -> glib::ExitCode {
         .build();
 
     app.connect_startup(|_| load_css());
-    app.connect_activate(|app| panel::build(app).present());
+    app.connect_activate(|app| {
+        panel::build(app).present();
+        debug::install();
+    });
     app.run()
 }
 
