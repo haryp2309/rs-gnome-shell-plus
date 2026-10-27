@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=GNOME Shell Plus
+Comment=GNOME Shell replacement built on Mutter, with a GTK4 top bar
+Exec=gnome-shell-plus-session
+TryExec=gnome-shell-plus
+Type=Application
+DesktopNames=GNOME

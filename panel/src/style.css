@@ -1,0 +1,108 @@
+/* Top bar, modelled on GNOME Shell's #panel. */
+
+window.shellplus-panel {
+  background: none;
+}
+
+.panel {
+  min-height: 32px;
+  padding: 0 6px;
+  color: white;
+  /* Tint over the blurred wallpaper; replaced by the window color when solid. */
+  background-color: rgba(0, 0, 0, 0.3);
+  font-weight: bold;
+  transition: background-color 250ms ease-out, color 250ms ease-out;
+}
+
+.panel.solid.light {
+  color: rgba(0, 0, 0, 0.87);
+}
+
+/* Pill-shaped panel buttons (Activities/workspaces, clock, system menu). */
+.panel .panel-button,
+.panel menubutton.panel-button > button {
+  min-height: 0;
+  min-width: 0;
+  margin: 3px 0;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+  font-weight: bold;
+  transition: background-color 150ms ease-out;
+}
+
+.panel .panel-button:hover,
+.panel menubutton.panel-button > button:hover {
+  background-color: alpha(currentColor, 0.15);
+}
+
+.panel menubutton.panel-button > button:checked,
+.panel menubutton.panel-button > button:active {
+  background-color: alpha(currentColor, 0.25);
+}
+
+/* Workspace dots */
+.panel .workspaces {
+  padding: 0 9px;
+}
+
+.panel button.ws-dot {
+  min-width: 7px;
+  min-height: 7px;
+  margin: 0 3px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: alpha(currentColor, 0.45);
+  box-shadow: none;
+  transition: min-width 250ms ease-out, background-color 250ms ease-out;
+}
+
+.panel button.ws-dot:hover {
+  background-color: alpha(currentColor, 0.75);
+}
+
+.panel button.ws-dot.active {
+  min-width: 34px;
+  background-color: currentColor;
+}
+
+/* Popover menus */
+popover.panel-menu > contents {
+  padding: 12px;
+  border-radius: 24px;
+}
+
+.date-menu .notifications {
+  margin-right: 12px;
+}
+
+.date-menu .calendar-column {
+  margin-left: 12px;
+}
+
+.quick-settings .quick-action {
+  min-width: 40px;
+  min-height: 40px;
+}
+
+.quick-settings .battery-level {
+  margin-left: 6px;
+}
+
+.quick-toggle {
+  min-height: 48px;
+  padding: 0 16px;
+  border-radius: 999px;
+}
+
+.quick-toggle:checked {
+  background-color: var(--accent-bg-color);
+  color: var(--accent-fg-color);
+}
+
+.power-menu button {
+  padding: 8px 12px;
+  border-radius: 12px;
+}

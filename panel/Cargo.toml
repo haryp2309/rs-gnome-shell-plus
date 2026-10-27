@@ -1,0 +1,13 @@
+[package]
+name = "gnome-shell-plus-panel"
+version = "0.1.0"
+edition = "2021"
+description = "Top bar for GNOME Shell Plus, a GTK4/libadwaita client of the gnome-shell-plus compositor"
+license = "GPL-2.0-or-later"
+
+[dependencies]
+gtk = { package = "gtk4", version = "0.11", features = ["v4_16"] }
+adw = { package = "libadwaita", version = "0.9", features = ["v1_6"] }
+
+[profile.release]
+lto = "thin"

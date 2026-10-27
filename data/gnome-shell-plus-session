@@ -1,0 +1,35 @@
+#!/bin/sh
+# Session entry point started by the display manager (see
+# gnome-shell-plus.desktop). Runs the compositor and the GNOME settings
+# daemons that apply keyboard, power, color/night light, media keys, etc.
+set -u
+
+export XDG_CURRENT_DESKTOP=GNOME
+export XDG_SESSION_DESKTOP=gnome-shell-plus
+export XDG_SESSION_TYPE=wayland
+
+WAYLAND_NAME=wayland-0
+
+gnome-shell-plus --wayland --display-server --wayland-display "$WAYLAND_NAME" "$@" &
+SHELL_PID=$!
+
+i=0
+while [ ! -S "$XDG_RUNTIME_DIR/$WAYLAND_NAME" ] && [ $i -lt 100 ]; do
+  sleep 0.1
+  i=$((i + 1))
+done
+
+export WAYLAND_DISPLAY=$WAYLAND_NAME
+dbus-update-activation-environment --systemd \
+  WAYLAND_DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_DESKTOP XDG_SESSION_TYPE 2>/dev/null
+
+for daemon in a11y-settings color datetime housekeeping keyboard media-keys power \
+              print-notifications rfkill screensaver-proxy sharing smartcard sound \
+              usb-protection wacom; do
+  [ -x "/usr/libexec/gsd-$daemon" ] && "/usr/libexec/gsd-$daemon" &
+done
+
+wait $SHELL_PID
+status=$?
+pkill -P $$ 2>/dev/null
+exit $status

@@ -1,0 +1,4 @@
+option('mutter_api', type: 'string', value: '18',
+  description: 'libmutter API version to build against (Mutter 50 = 18)')
+option('panel_binary', type: 'string', value: 'gnome-shell-plus-panel',
+  description: 'Panel executable to launch (looked up in PATH unless absolute)')
