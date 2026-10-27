@@ -2,6 +2,7 @@
 //! panel, or a solid fill matching the maximized window's header otherwise.
 
 use crate::ipc::{ShellClient, ShellState};
+use crate::notifications::Notifications;
 use crate::{clock, quick_settings, system, wallpaper, workspaces::Workspaces};
 use adw::prelude::*;
 use gtk::{gdk, glib};
@@ -17,8 +18,12 @@ const FALLBACK_HEIGHT: i32 = 32;
 const MENU_OFFSET: i32 = 6;
 const TRANSITION_MS: u32 = 250;
 
-pub fn build(app: &adw::Application) -> gtk::ApplicationWindow {
-    let client = ShellClient::new();
+pub fn build(
+    app: &adw::Application,
+    client: &Rc<ShellClient>,
+    notifications: &Rc<Notifications>,
+) -> gtk::ApplicationWindow {
+    let client = client.clone();
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
@@ -37,7 +42,7 @@ pub fn build(app: &adw::Application) -> gtk::ApplicationWindow {
     let bar = gtk::CenterBox::builder().css_classes(["panel"]).build();
     let workspaces = Workspaces::new(client.clone());
     bar.set_start_widget(Some(workspaces.widget()));
-    bar.set_center_widget(Some(&clock::build()));
+    bar.set_center_widget(Some(&clock::build(notifications)));
     bar.set_end_widget(Some(&quick_settings::build(client.clone())));
 
     let overlay = gtk::Overlay::new();

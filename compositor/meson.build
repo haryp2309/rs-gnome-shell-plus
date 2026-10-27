@@ -29,6 +29,7 @@ executable('gnome-shell-plus',
   'src/shellplus-background.c',
   'src/shellplus-dbus.c',
   'src/shellplus-panel-constraint.c',
+  'src/shellplus-shell-dbus.c',
   dependencies: deps,
   install: true,
 )

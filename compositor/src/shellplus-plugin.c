@@ -20,6 +20,7 @@
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
 #include "shellplus-panel-constraint.h"
+#include "shellplus-shell-dbus.h"
 
 #define UPDATE_DELAY_MS          50
 /* Apps usually need a frame or two to repaint after maximizing or after
@@ -34,17 +35,25 @@
 #define SAMPLE_Y                 2
 #define SAMPLE_HEIGHT            4
 
+/* Window titles the panel process gives its windows (see panel/src). */
+#define TOP_BAR_TITLE "Top Bar"
+#define BANNER_TITLE  "Notification Banner"
+#define OSD_TITLE     "On-Screen Display"
+
 struct _ShellPlusPlugin
 {
   MetaPlugin parent;
 
   ShellPlusBackground *background;
   ShellPlusDBus *dbus;
+  ShellPlusShellDBus *shell_dbus;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
   MetaWindow *panel_window;
   MetaExternalConstraint *panel_constraint;
+  MetaExternalConstraint *banner_constraint;
+  MetaExternalConstraint *osd_constraint;
   int panel_height;
   gint64 panel_spawn_time;
   int panel_quick_crashes;
@@ -566,6 +575,72 @@ setup_panel_window (ShellPlusPlugin *self,
                            G_CALLBACK (on_panel_unmanaged), self, 0);
 }
 
+/* Banners and OSDs: never focused, on every workspace, above windows. */
+static void
+setup_overlay_window (ShellPlusPlugin *self,
+                      MetaWindow      *window,
+                      ShellPlusRole    role)
+{
+  MtkRectangle frame;
+
+  meta_window_set_type (window, META_WINDOW_NOTIFICATION);
+  meta_window_hide_from_window_list (window);
+  meta_window_stick (window);
+  meta_window_make_above (window);
+  meta_window_add_external_constraint (window,
+                                       role == SHELLPLUS_ROLE_BANNER ?
+                                       self->banner_constraint :
+                                       self->osd_constraint);
+
+  /* Re-run the constraints in case the window is already placed. */
+  meta_window_get_frame_rect (window, &frame);
+  meta_window_move_frame (window, FALSE, frame.x, frame.y);
+}
+
+static ShellPlusRole
+role_for_window (MetaWindow *window)
+{
+  const char *title = meta_window_get_title (window);
+
+  if (g_strcmp0 (title, TOP_BAR_TITLE) == 0)
+    return SHELLPLUS_ROLE_TOP_BAR;
+  if (g_strcmp0 (title, BANNER_TITLE) == 0)
+    return SHELLPLUS_ROLE_BANNER;
+  if (g_strcmp0 (title, OSD_TITLE) == 0)
+    return SHELLPLUS_ROLE_OSD;
+  return SHELLPLUS_ROLE_NONE;
+}
+
+/* Returns FALSE if the window's role isn't known (yet). */
+static gboolean
+setup_panel_client_window (ShellPlusPlugin *self,
+                           MetaWindow      *window)
+{
+  switch (role_for_window (window))
+    {
+    case SHELLPLUS_ROLE_TOP_BAR:
+      if (!self->panel_window)
+        setup_panel_window (self, window);
+      return TRUE;
+    case SHELLPLUS_ROLE_BANNER:
+    case SHELLPLUS_ROLE_OSD:
+      setup_overlay_window (self, window, role_for_window (window));
+      return TRUE;
+    case SHELLPLUS_ROLE_NONE:
+      break;
+    }
+  return FALSE;
+}
+
+static void
+on_panel_client_title_changed (MetaWindow      *window,
+                               GParamSpec      *pspec,
+                               ShellPlusPlugin *self)
+{
+  if (setup_panel_client_window (self, window))
+    g_signal_handlers_disconnect_by_func (window, on_panel_client_title_changed, self);
+}
+
 static gboolean
 respawn_panel_cb (gpointer user_data)
 {
@@ -646,13 +721,16 @@ on_window_created (MetaDisplay     *display,
                    MetaWindow      *window,
                    ShellPlusPlugin *self)
 {
-  if (!self->panel_window &&
-      self->panel_client &&
-      meta_window_get_window_type (window) == META_WINDOW_NORMAL &&
-      !meta_window_get_transient_for (window) &&
-      meta_wayland_client_owns_window (self->panel_client, window))
+  /* The panel's own windows (bar, banners, OSD, its dialogs) don't take
+   * part in maximize tracking or workspace bookkeeping. They are told apart
+   * by title, which may only arrive after the window is created. */
+  if (self->panel_client && meta_wayland_client_owns_window (self->panel_client, window))
     {
-      setup_panel_window (self, window);
+      if (meta_window_get_window_type (window) == META_WINDOW_NORMAL &&
+          !meta_window_get_transient_for (window) &&
+          !setup_panel_client_window (self, window))
+        g_signal_connect_object (window, "notify::title",
+                                 G_CALLBACK (on_panel_client_title_changed), self, 0);
       return;
     }
 
@@ -734,9 +812,12 @@ shellplus_plugin_start (MetaPlugin *plugin)
 
   self->background = shellplus_background_new (display,
                                                meta_compositor_get_window_group (compositor));
-  self->panel_constraint = shellplus_panel_constraint_new (display);
+  self->panel_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_TOP_BAR);
+  self->banner_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_BANNER);
+  self->osd_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OSD);
   self->mutter_settings = g_settings_new ("org.gnome.mutter");
   self->dbus = shellplus_dbus_new (&dbus_handlers, self);
+  self->shell_dbus = shellplus_shell_dbus_new (display, self->dbus);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
@@ -783,6 +864,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_pointer (&self->shell_dbus, shellplus_shell_dbus_free);
   g_clear_pointer (&self->dbus, shellplus_dbus_free);
   g_clear_pointer (&self->background, shellplus_background_free);
   g_clear_pointer (&self->last_state, g_variant_unref);
@@ -790,6 +872,8 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_object (&self->backlight);
   g_clear_object (&self->panel_client);
   g_clear_object (&self->panel_constraint);
+  g_clear_object (&self->banner_constraint);
+  g_clear_object (&self->osd_constraint);
   g_clear_object (&self->mutter_settings);
   g_free (self->color);
 

@@ -5,12 +5,23 @@
 
 G_BEGIN_DECLS
 
+/* The panel process's windows, told apart by their titles. */
+typedef enum
+{
+  SHELLPLUS_ROLE_NONE,
+  SHELLPLUS_ROLE_TOP_BAR,  /* full width, top of the primary monitor */
+  SHELLPLUS_ROLE_BANNER,   /* notification banners: centered below the bar */
+  SHELLPLUS_ROLE_OSD,      /* volume/brightness pop-ups: centered, near the bottom */
+} ShellPlusRole;
+
 #define SHELLPLUS_TYPE_PANEL_CONSTRAINT (shellplus_panel_constraint_get_type ())
 G_DECLARE_FINAL_TYPE (ShellPlusPanelConstraint, shellplus_panel_constraint,
                       SHELLPLUS, PANEL_CONSTRAINT, GObject)
 
-/* Pins a window to the top edge of the primary monitor, spanning its full
- * width. The window keeps whatever height the client asks for. */
-MetaExternalConstraint *shellplus_panel_constraint_new (MetaDisplay *display);
+/* Places a panel-owned window on the primary monitor according to its role.
+ * The window keeps whatever size the client asks for (the top bar is
+ * stretched to the monitor's width). */
+MetaExternalConstraint *shellplus_panel_constraint_new (MetaDisplay   *display,
+                                                        ShellPlusRole  role);
 
 G_END_DECLS

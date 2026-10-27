@@ -1,0 +1,145 @@
+/* Notifications, modelled on GNOME Shell's message list and banners. */
+
+/* Cards (banners and the date menu list) */
+button.notification-card {
+  padding: 10px 12px 12px 12px;
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.08);
+  box-shadow: none;
+  font-weight: normal;
+  transition: background-color 150ms ease-out;
+}
+
+button.notification-card:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+
+button.notification-card:active {
+  background-color: alpha(currentColor, 0.16);
+}
+
+.notification-card .header {
+  margin-bottom: 4px;
+  font-size: smaller;
+}
+
+.notification-card .header .app-name {
+  font-weight: bold;
+}
+
+.notification-card .header .time {
+  opacity: 0.7;
+}
+
+.notification-card button.close {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  margin: -2px -4px -2px 0;
+  background-color: alpha(currentColor, 0.1);
+}
+
+.notification-card button.close:hover {
+  background-color: alpha(currentColor, 0.18);
+}
+
+.notification-card button.close image {
+  -gtk-icon-size: 12px;
+}
+
+.notification-card .image {
+  border-radius: 8px;
+}
+
+.notification-card .summary {
+  font-weight: bold;
+}
+
+.notification-card .body {
+  opacity: 0.85;
+}
+
+.notification-card .actions {
+  margin-top: 10px;
+}
+
+.notification-card .actions button {
+  min-height: 32px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background-color: alpha(currentColor, 0.1);
+  box-shadow: none;
+}
+
+.notification-card .actions button:hover {
+  background-color: alpha(currentColor, 0.16);
+}
+
+/* Banners: an opaque card with a shadow, sliding in from the top bar. The
+   window is transparent; its margin leaves room for the shadow. */
+@keyframes notification-banner-in {
+  from {
+    opacity: 0;
+    transform: translateY(-40px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+button.notification-card.notification-banner {
+  min-width: 400px;
+  margin: 2px 14px 18px 14px;
+  padding: 10px 14px 14px 14px;
+  border-radius: 16px;
+  background-color: var(--popover-bg-color);
+  color: var(--popover-fg-color);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06),
+              0 2px 4px rgba(0, 0, 0, 0.12),
+              0 6px 14px rgba(0, 0, 0, 0.2);
+  animation: notification-banner-in 250ms cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  transition: opacity 200ms ease-in, transform 200ms ease-in, background-color 150ms ease-out;
+}
+
+button.notification-card.notification-banner.leaving {
+  opacity: 0;
+  transform: translateY(-12px);
+}
+
+button.notification-card.notification-banner:hover {
+  background-color: color-mix(in srgb, var(--popover-bg-color), currentColor 4%);
+}
+
+/* Date menu list */
+.notification-group-header {
+  margin: 0 4px;
+  font-size: smaller;
+}
+
+.notification-group-header .app-name {
+  font-weight: bold;
+}
+
+.notification-list {
+  margin-right: 2px;
+}
+
+.notification-bottom-row button.clear-button {
+  padding: 4px 16px;
+  border-radius: 999px;
+  background-color: alpha(currentColor, 0.1);
+  box-shadow: none;
+}
+
+.notification-bottom-row button.clear-button:hover {
+  background-color: alpha(currentColor, 0.16);
+}
+
+/* Top bar indicator: GNOME's unseen-notifications dot */
+.notification-indicator .unseen-dot {
+  min-width: 6px;
+  min-height: 6px;
+  border-radius: 999px;
+  background-color: currentColor;
+}

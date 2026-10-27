@@ -1,6 +1,9 @@
 mod clock;
 mod debug;
 mod ipc;
+mod notifications;
+mod osd;
+mod overlay;
 mod panel;
 mod quick_settings;
 mod system;
@@ -22,7 +25,10 @@ fn main() -> glib::ExitCode {
 
     app.connect_startup(|_| load_css());
     app.connect_activate(|app| {
-        panel::build(app).present();
+        let client = ipc::ShellClient::new();
+        let notifications = notifications::Notifications::install(app);
+        osd::install(app, &client);
+        panel::build(app, &client, &notifications).present();
         debug::install();
     });
     app.run()

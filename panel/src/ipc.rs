@@ -67,12 +67,40 @@ impl ShellState {
     }
 }
 
+/// An org.gnome.Shell.ShowOSD request, relayed by the compositor. Sent by
+/// gnome-settings-daemon for volume/brightness keys and similar.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct OsdRequest {
+    pub icon: Option<String>,
+    pub label: Option<String>,
+    /// Usually 0..=max_level; `None` for a plain icon/label OSD.
+    pub level: Option<f64>,
+    pub max_level: f64,
+    /// Output connector the OSD is meant for (we only use the primary).
+    pub connector: Option<String>,
+}
+
+impl OsdRequest {
+    fn from_variant(dict: &glib::Variant) -> Self {
+        let dict = glib::VariantDict::new(Some(dict));
+        Self {
+            icon: dict.lookup::<String>("icon").ok().flatten(),
+            label: dict.lookup::<String>("label").ok().flatten(),
+            level: dict.lookup::<f64>("level").ok().flatten(),
+            max_level: dict.lookup::<f64>("max_level").ok().flatten().unwrap_or(1.0),
+            connector: dict.lookup::<String>("connector").ok().flatten(),
+        }
+    }
+}
+
 type StateCallback = Box<dyn Fn(&ShellState)>;
+type OsdCallback = Box<dyn Fn(&OsdRequest)>;
 
 pub struct ShellClient {
     connection: Option<gio::DBusConnection>,
     state: RefCell<ShellState>,
     callbacks: RefCell<Vec<StateCallback>>,
+    osd_callbacks: RefCell<Vec<OsdCallback>>,
 }
 
 impl ShellClient {
@@ -89,6 +117,7 @@ impl ShellClient {
             connection,
             state: RefCell::default(),
             callbacks: RefCell::default(),
+            osd_callbacks: RefCell::default(),
         });
 
         if let Some(connection) = &client.connection {
@@ -104,6 +133,25 @@ impl ShellClient {
                 move |_, _, _, _, _, params| {
                     if let Some(client) = weak.upgrade() {
                         client.set_state(ShellState::from_variant(&params.child_value(0)));
+                    }
+                },
+            );
+
+            let weak = Rc::downgrade(&client);
+            #[allow(deprecated)]
+            connection.signal_subscribe(
+                Some(BUS_NAME),
+                Some(IFACE),
+                Some("ShowOSD"),
+                Some(PATH),
+                None,
+                gio::DBusSignalFlags::NONE,
+                move |_, _, _, _, _, params| {
+                    if let Some(client) = weak.upgrade() {
+                        let request = OsdRequest::from_variant(&params.child_value(0));
+                        for callback in client.osd_callbacks.borrow().iter() {
+                            callback(&request);
+                        }
                     }
                 },
             );
@@ -134,6 +182,11 @@ impl ShellClient {
     pub fn connect_state(&self, callback: impl Fn(&ShellState) + 'static) {
         callback(&self.state.borrow());
         self.callbacks.borrow_mut().push(Box::new(callback));
+    }
+
+    /// Calls `callback` for every OSD request.
+    pub fn connect_osd(&self, callback: impl Fn(&OsdRequest) + 'static) {
+        self.osd_callbacks.borrow_mut().push(Box::new(callback));
     }
 
     pub fn activate_workspace(&self, index: i32) {

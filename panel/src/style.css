@@ -1,6 +1,7 @@
 /* Top bar, modelled on GNOME Shell's #panel. */
 
-window.shellplus-panel {
+window.shellplus-panel,
+window.shellplus-overlay {
   background: none;
 }
 
@@ -215,4 +216,35 @@ button.menu-item:hover {
 .power-menu button {
   padding: 8px 12px;
   border-radius: 12px;
+}
+
+/* Volume/brightness pop-up, like GNOME Shell's OSD: dark pill in both
+   light and dark styles. */
+.osd-card {
+  margin: 12px; /* room for the shadow */
+  padding: 14px 20px;
+  border-radius: 999px;
+  background-color: rgba(36, 36, 36, 0.92);
+  color: white;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+.osd-card .osd-label {
+  font-weight: bold;
+}
+
+.osd-card levelbar trough {
+  min-height: 6px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.osd-card levelbar block.filled {
+  border-radius: 999px;
+  background-color: white;
+}
+
+.osd-card levelbar block.empty {
+  background: none;
 }

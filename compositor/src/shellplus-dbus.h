@@ -28,6 +28,9 @@ ShellPlusDBus *shellplus_dbus_new (const ShellPlusDBusHandlers *handlers,
 void shellplus_dbus_emit_state_changed (ShellPlusDBus *self,
                                         GVariant      *state);
 
+void shellplus_dbus_emit_show_osd (ShellPlusDBus *self,
+                                   GVariant      *params);
+
 void shellplus_dbus_free (ShellPlusDBus *self);
 
 G_END_DECLS

@@ -1,16 +1,22 @@
-//! Center clock and the date menu (notifications placeholder + calendar).
+//! Center clock and the date menu (notifications + calendar).
 //! Honors the org.gnome.desktop.interface clock-* keys like GNOME Shell.
 
+use crate::notifications::Notifications;
 use crate::system;
-use adw::prelude::*;
+use gtk::prelude::*;
 use gtk::{gio, glib};
+use std::rc::Rc;
 
-pub fn build() -> gtk::MenuButton {
+pub fn build(notifications: &Rc<Notifications>) -> gtk::MenuButton {
     let label = gtk::Label::new(None);
+    // The clock, plus GNOME's unread-notifications dot / Do Not Disturb icon.
+    let content = gtk::Box::builder().spacing(6).build();
+    content.append(&label);
+    content.append(&notifications.indicator());
     let button = gtk::MenuButton::builder()
         .name("clock-button")
-        .child(&label)
-        .popover(&build_popover())
+        .child(&content)
+        .popover(&build_popover(notifications))
         .css_classes(["panel-button", "clock"])
         .build();
 
@@ -59,47 +65,12 @@ fn format_clock(settings: Option<&gio::Settings>) -> String {
     now.format(&format).map(|s| s.to_string()).unwrap_or_default()
 }
 
-fn build_popover() -> gtk::Popover {
+fn build_popover(notifications: &Rc<Notifications>) -> gtk::Popover {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     content.add_css_class("date-menu");
 
-    // Notifications column. Notification support comes later; for now this
-    // mirrors the empty state and the Do Not Disturb switch.
-    let notifications = gtk::Box::builder()
-        .orientation(gtk::Orientation::Vertical)
-        .spacing(12)
-        .width_request(360)
-        .css_classes(["notifications"])
-        .build();
-    let empty = adw::StatusPage::builder()
-        .icon_name("preferences-system-notifications-symbolic")
-        .title("No Notifications")
-        .vexpand(true)
-        .css_classes(["compact"])
-        .build();
-    notifications.append(&empty);
-
-    let dnd_row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
-    dnd_row.append(
-        &gtk::Label::builder()
-            .label("Do Not Disturb")
-            .xalign(0.0)
-            .hexpand(true)
-            .build(),
-    );
-    let dnd = gtk::Switch::builder().valign(gtk::Align::Center).build();
-    if let Some(settings) = system::settings("org.gnome.desktop.notifications") {
-        settings
-            .bind("show-banners", &dnd, "active")
-            .invert_boolean()
-            .build();
-        dnd.connect_destroy(move |_| {
-            let _ = &settings;
-        });
-    }
-    dnd_row.append(&dnd);
-    notifications.append(&dnd_row);
-
+    // Notification list (or empty state) and the Do Not Disturb switch.
+    let notifications = notifications.date_menu_section();
     content.append(&notifications);
     content.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 

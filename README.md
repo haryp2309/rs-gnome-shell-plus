@@ -172,12 +172,18 @@ Done:
 - quick settings: volume and microphone (with device menus), brightness,
   Wi-Fi (network list), Wired, Bluetooth (devices), Power Mode, Night Light,
   Dark Style, Airplane Mode, battery, power menu with confirmation dialogs
+- notifications: `org.freedesktop.Notifications` and `org.gtk.Notifications`
+  servers, banners (actions, critical, Do Not Disturb, per-app settings),
+  grouped list in the date menu, unread indicator
+- volume/brightness pop-ups (OSD) and media keys: the compositor provides
+  `org.gnome.Shell`'s `ShowOSD` and `GrabAccelerator(s)` for
+  gnome-settings-daemon
 
 Missing compared to GNOME Shell:
 
 - overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
-- Alt-Tab switcher, window animations, volume/brightness OSDs
-- notifications (the date menu shows the empty state and the Do Not Disturb switch)
+- Alt-Tab switcher, window animations
+- media player controls and calendar events in the date menu
 - lock screen, polkit agent, Wi-Fi password prompts, keyring prompts, on-screen keyboard
 - keyboard layout indicator / input source switching, screenshot UI
 - VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters

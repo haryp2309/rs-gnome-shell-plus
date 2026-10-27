@@ -12,6 +12,9 @@
  *   n-workspaces      i
  *   monitor           (iiii) primary monitor x, y, width, height
  *   brightness        d     backlight 0..1, or -1 if there is none
+ *
+ * ShowOSD relays org.gnome.Shell.ShowOSD requests (icon, label, level,
+ * max_level, connector) to the panel, which draws the pop-up.
  */
 static const char introspection_xml[] =
   "<node>"
@@ -29,6 +32,9 @@ static const char introspection_xml[] =
   "    </method>"
   "    <signal name='StateChanged'>"
   "      <arg type='a{sv}' name='state'/>"
+  "    </signal>"
+  "    <signal name='ShowOSD'>"
+  "      <arg type='a{sv}' name='params'/>"
   "    </signal>"
   "  </interface>"
   "</node>";
@@ -153,6 +159,18 @@ shellplus_dbus_emit_state_changed (ShellPlusDBus *self,
   g_dbus_connection_emit_signal (self->connection, NULL, SHELLPLUS_DBUS_PATH,
                                  SHELLPLUS_DBUS_IFACE, "StateChanged",
                                  g_variant_new ("(@a{sv})", state), NULL);
+}
+
+void
+shellplus_dbus_emit_show_osd (ShellPlusDBus *self,
+                              GVariant      *params)
+{
+  if (!self->connection || !self->registration_id)
+    return;
+
+  g_dbus_connection_emit_signal (self->connection, NULL, SHELLPLUS_DBUS_PATH,
+                                 SHELLPLUS_DBUS_IFACE, "ShowOSD",
+                                 g_variant_new ("(@a{sv})", params), NULL);
 }
 
 void

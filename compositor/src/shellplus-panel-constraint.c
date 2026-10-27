@@ -1,10 +1,16 @@
 #include "shellplus-panel-constraint.h"
 
+#include <meta/window.h>
+
+/* Gap between the bottom of the top bar and a notification banner. */
+#define BANNER_MARGIN 6
+
 struct _ShellPlusPanelConstraint
 {
   GObject parent;
 
   MetaDisplay *display;
+  ShellPlusRole role;
 };
 
 static void constraint_iface_init (MetaExternalConstraintInterface *iface);
@@ -20,17 +26,40 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
 {
   ShellPlusPanelConstraint *self = SHELLPLUS_PANEL_CONSTRAINT (constraint);
   int primary = meta_display_get_primary_monitor (self->display);
-  MtkRectangle monitor;
+  MtkRectangle *rect = info->new_rect;
+  MtkRectangle monitor, work_area;
 
   if (primary < 0)
     return FALSE;
 
   meta_display_get_monitor_geometry (self->display, primary, &monitor);
 
-  info->new_rect->x = monitor.x;
-  info->new_rect->y = monitor.y;
-  info->new_rect->width = monitor.width;
-  info->new_rect->height = CLAMP (info->new_rect->height, 1, monitor.height / 4);
+  switch (self->role)
+    {
+    case SHELLPLUS_ROLE_TOP_BAR:
+      rect->x = monitor.x;
+      rect->y = monitor.y;
+      rect->width = monitor.width;
+      rect->height = CLAMP (rect->height, 1, monitor.height / 4);
+      break;
+
+    case SHELLPLUS_ROLE_BANNER:
+      /* The work area starts below the top bar's strut. */
+      meta_window_get_work_area_for_monitor (window, primary, &work_area);
+      rect->width = MIN (rect->width, monitor.width);
+      rect->x = monitor.x + (monitor.width - rect->width) / 2;
+      rect->y = work_area.y + BANNER_MARGIN;
+      break;
+
+    case SHELLPLUS_ROLE_OSD:
+      rect->width = MIN (rect->width, monitor.width);
+      rect->x = monitor.x + (monitor.width - rect->width) / 2;
+      rect->y = monitor.y + monitor.height - monitor.height / 8 - rect->height;
+      break;
+
+    case SHELLPLUS_ROLE_NONE:
+      return FALSE;
+    }
 
   return TRUE;
 }
@@ -52,10 +81,12 @@ shellplus_panel_constraint_init (ShellPlusPanelConstraint *self)
 }
 
 MetaExternalConstraint *
-shellplus_panel_constraint_new (MetaDisplay *display)
+shellplus_panel_constraint_new (MetaDisplay   *display,
+                                ShellPlusRole  role)
 {
   ShellPlusPanelConstraint *self = g_object_new (SHELLPLUS_TYPE_PANEL_CONSTRAINT, NULL);
 
   self->display = display;
+  self->role = role;
   return META_EXTERNAL_CONSTRAINT (self);
 }
