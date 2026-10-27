@@ -51,9 +51,15 @@ and costs nothing per frame.
 | `compositor/src/shellplus-plugin.c` | Panel management, struts, maximized-color sampling, dynamic workspaces |
 | `compositor/src/shellplus-background.c` | Wallpaper |
 | `compositor/src/shellplus-dbus.c` | The compositor ↔ panel interface |
+| `compositor/src/shellplus-shell-dbus.c` | The `org.gnome.Shell` subset gnome-settings-daemon uses (OSD, media keys) |
+| `compositor/src/shellplus-input-sources.c` | Keyboard layouts and Super+Space |
 | `panel/src/panel.rs` | Bar window, translucent/solid switching |
 | `panel/src/wallpaper.rs` | Blurred wallpaper strip |
-| `panel/src/quick_settings.rs` | Status icons and the quick settings menu |
+| `panel/src/quick_settings/` | Status icons and the quick settings menu |
+| `panel/src/notifications/` | Notification servers, banners, the date menu list |
+| `panel/src/osd.rs` | Volume/brightness pop-up |
+| `panel/src/keyboard.rs` | Keyboard layout indicator |
+| `panel/src/media/` | Media player controls (MPRIS) in the date menu |
 | `panel/src/clock.rs`, `workspaces.rs` | Clock/calendar, workspace indicator |
 | `panel/src/style.css` | GNOME Shell-like styling |
 
@@ -63,7 +69,9 @@ and costs nothing per frame.
 | --- | --- |
 | `org.gnome.desktop.background` | `picture-uri`, `picture-uri-dark`, `picture-options`, `primary-color`, `secondary-color`, `color-shading-type` |
 | `org.gnome.desktop.interface` | `color-scheme`, `clock-format`, `clock-show-date`, `clock-show-seconds`, `clock-show-weekday`, `show-battery-percentage` |
-| `org.gnome.desktop.notifications` | `show-banners` (Do Not Disturb) |
+| `org.gnome.desktop.notifications` | `show-banners` (Do Not Disturb), per-app settings |
+| `org.gnome.desktop.input-sources` | `sources` (XKB layouts), `mru-sources`, `xkb-options`, `xkb-model` |
+| `org.gnome.desktop.wm.keybindings` | `switch-input-source`, `switch-input-source-backward` (Super+Space) |
 | `org.gnome.settings-daemon.plugins.color` | `night-light-enabled` |
 | `org.gnome.mutter` | `dynamic-workspaces`, plus everything Mutter reads itself (`org.gnome.desktop.wm.*` keybindings and preferences, etc.) |
 
@@ -178,14 +186,18 @@ Done:
 - volume/brightness pop-ups (OSD) and media keys: the compositor provides
   `org.gnome.Shell`'s `ShowOSD` and `GrabAccelerator(s)` for
   gnome-settings-daemon
+- media player controls (MPRIS) in the date menu
+- keyboard layouts: indicator and menu in the panel, Super+Space /
+  Super+Shift+Space switching (most recently used first, like GNOME Shell)
 
 Missing compared to GNOME Shell:
 
 - overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
 - Alt-Tab switcher, window animations
-- media player controls and calendar events in the date menu
+- calendar events in the date menu
 - lock screen, polkit agent, Wi-Fi password prompts, keyring prompts, on-screen keyboard
-- keyboard layout indicator / input source switching, screenshot UI
+- IBus input methods (only XKB layouts are used), per-window layouts, the
+  Super+Space switcher pop-up (a tap switches straight away), screenshot UI
 - VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters
 - XML wallpaper slideshows (the first image is used)
 - panel only on the primary monitor (as in GNOME Shell)

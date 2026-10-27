@@ -209,6 +209,18 @@ button.menu-item:hover {
 }
 
 /* Panel indicators */
+.panel .input-source {
+  font-weight: bold;
+}
+
+.keyboard-menu {
+  min-width: 240px;
+}
+
+.keyboard-menu separator {
+  margin: 6px 0;
+}
+
 .status-icons .privacy-indicator {
   color: #ffa348;
 }

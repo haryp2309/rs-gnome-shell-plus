@@ -20,6 +20,8 @@ typedef struct
   void       (*log_out)            (gpointer user_data);
   void       (*set_brightness)     (gpointer user_data,
                                     double   value);
+  void       (*set_input_source)   (gpointer user_data,
+                                    int      index);
 } ShellPlusDBusHandlers;
 
 ShellPlusDBus *shellplus_dbus_new (const ShellPlusDBusHandlers *handlers,

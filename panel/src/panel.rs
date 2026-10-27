@@ -3,7 +3,7 @@
 
 use crate::ipc::{ShellClient, ShellState};
 use crate::notifications::Notifications;
-use crate::{clock, quick_settings, system, wallpaper, workspaces::Workspaces};
+use crate::{clock, keyboard, quick_settings, system, wallpaper, workspaces::Workspaces};
 use adw::prelude::*;
 use gtk::{gdk, glib};
 use std::cell::{Cell, RefCell};
@@ -43,7 +43,10 @@ pub fn build(
     let workspaces = Workspaces::new(client.clone());
     bar.set_start_widget(Some(workspaces.widget()));
     bar.set_center_widget(Some(&clock::build(notifications)));
-    bar.set_end_widget(Some(&quick_settings::build(client.clone())));
+    let end = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    end.append(&keyboard::build(&client));
+    end.append(&quick_settings::build(client.clone()));
+    bar.set_end_widget(Some(&end));
 
     let overlay = gtk::Overlay::new();
     overlay.set_child(Some(&backdrop));

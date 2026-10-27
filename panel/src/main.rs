@@ -1,6 +1,8 @@
 mod clock;
 mod debug;
 mod ipc;
+mod keyboard;
+mod media;
 mod notifications;
 mod osd;
 mod overlay;

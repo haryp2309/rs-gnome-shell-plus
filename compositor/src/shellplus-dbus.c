@@ -12,6 +12,8 @@
  *   n-workspaces      i
  *   monitor           (iiii) primary monitor x, y, width, height
  *   brightness        d     backlight 0..1, or -1 if there is none
+ *   input-sources     a(sss) keyboard layouts: id, short name, display name
+ *   input-source      i     index of the active layout
  *
  * ShowOSD relays org.gnome.Shell.ShowOSD requests (icon, label, level,
  * max_level, connector) to the panel, which draws the pop-up.
@@ -29,6 +31,9 @@ static const char introspection_xml[] =
   "    <method name='LogOut'/>"
   "    <method name='SetBrightness'>"
   "      <arg type='d' name='value' direction='in'/>"
+  "    </method>"
+  "    <method name='SetInputSource'>"
+  "      <arg type='i' name='index' direction='in'/>"
   "    </method>"
   "    <signal name='StateChanged'>"
   "      <arg type='a{sv}' name='state'/>"
@@ -93,6 +98,14 @@ handle_method_call (GDBusConnection       *connection,
 
       g_variant_get (parameters, "(d)", &value);
       self->handlers.set_brightness (self->user_data, value);
+      g_dbus_method_invocation_return_value (invocation, NULL);
+    }
+  else if (g_strcmp0 (method_name, "SetInputSource") == 0)
+    {
+      int index;
+
+      g_variant_get (parameters, "(i)", &index);
+      self->handlers.set_input_source (self->user_data, index);
       g_dbus_method_invocation_return_value (invocation, NULL);
     }
   else

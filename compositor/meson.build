@@ -14,6 +14,7 @@ deps = [
   dependency('gio-unix-2.0'),
   dependency('gsettings-desktop-schemas'),
   dependency('cairo'),
+  dependency('xkbregistry'),
 ]
 
 add_project_arguments(
@@ -28,6 +29,7 @@ executable('gnome-shell-plus',
   'src/shellplus-plugin.c',
   'src/shellplus-background.c',
   'src/shellplus-dbus.c',
+  'src/shellplus-input-sources.c',
   'src/shellplus-panel-constraint.c',
   'src/shellplus-shell-dbus.c',
   dependencies: deps,

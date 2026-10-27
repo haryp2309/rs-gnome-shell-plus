@@ -1,0 +1,64 @@
+/* Media player cards in the date menu, modelled on GNOME Shell's MediaMessage. */
+.date-menu .media-section {
+  margin-right: 12px;
+}
+
+button.media-card {
+  padding: 10px 12px 8px 12px;
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.08);
+  box-shadow: none;
+  font-weight: normal;
+  transition: background-color 150ms ease-out;
+}
+
+button.media-card:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+
+button.media-card:active {
+  background-color: alpha(currentColor, 0.16);
+}
+
+.media-card .header {
+  margin-bottom: 8px;
+  font-size: smaller;
+}
+
+.media-card .header .app-name {
+  font-weight: bold;
+}
+
+.media-card .art {
+  border-radius: 8px;
+}
+
+.media-card .art.fallback {
+  background-color: alpha(currentColor, 0.1);
+}
+
+.media-card .title {
+  font-weight: bold;
+}
+
+.media-card .artist {
+  opacity: 0.8;
+}
+
+.media-card .controls {
+  margin-top: 6px;
+}
+
+.media-card .controls button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+}
+
+.media-card .controls button:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+
+.media-card .controls button.play-pause image {
+  -gtk-icon-size: 20px;
+}

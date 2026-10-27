@@ -19,6 +19,7 @@
 
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
+#include "shellplus-input-sources.h"
 #include "shellplus-panel-constraint.h"
 #include "shellplus-shell-dbus.h"
 
@@ -47,6 +48,7 @@ struct _ShellPlusPlugin
   ShellPlusBackground *background;
   ShellPlusDBus *dbus;
   ShellPlusShellDBus *shell_dbus;
+  ShellPlusInputSources *input_sources;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
@@ -145,6 +147,13 @@ build_state (ShellPlusPlugin *self)
                                         monitor.width, monitor.height));
   g_variant_builder_add (&builder, "{sv}", "brightness",
                          g_variant_new_double (get_brightness (self)));
+  if (self->input_sources)
+    {
+      g_variant_builder_add (&builder, "{sv}", "input-sources",
+                             shellplus_input_sources_get_sources (self->input_sources));
+      g_variant_builder_add (&builder, "{sv}", "input-source",
+                             g_variant_new_int32 (shellplus_input_sources_get_current (self->input_sources)));
+    }
   return g_variant_builder_end (&builder);
 }
 
@@ -209,12 +218,22 @@ dbus_set_brightness (gpointer user_data,
                                  min + (int) round (CLAMP (value, 0.0, 1.0) * (max - min)));
 }
 
+static void
+dbus_set_input_source (gpointer user_data,
+                       int      index)
+{
+  ShellPlusPlugin *self = user_data;
+
+  shellplus_input_sources_activate (self->input_sources, index);
+}
+
 static const ShellPlusDBusHandlers dbus_handlers = {
   .get_state = dbus_get_state,
   .activate_workspace = dbus_activate_workspace,
   .toggle_overview = dbus_toggle_overview,
   .log_out = dbus_log_out,
   .set_brightness = dbus_set_brightness,
+  .set_input_source = dbus_set_input_source,
 };
 
 /* ------------------------------------------------------------------------ */
@@ -818,6 +837,9 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->mutter_settings = g_settings_new ("org.gnome.mutter");
   self->dbus = shellplus_dbus_new (&dbus_handlers, self);
   self->shell_dbus = shellplus_shell_dbus_new (display, self->dbus);
+  self->input_sources = shellplus_input_sources_new (display,
+                                                     (ShellPlusInputSourcesChanged) publish_state,
+                                                     self);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
@@ -864,6 +886,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_pointer (&self->input_sources, shellplus_input_sources_free);
   g_clear_pointer (&self->shell_dbus, shellplus_shell_dbus_free);
   g_clear_pointer (&self->dbus, shellplus_dbus_free);
   g_clear_pointer (&self->background, shellplus_background_free);

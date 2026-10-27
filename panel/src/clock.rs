@@ -1,4 +1,4 @@
-//! Center clock and the date menu (notifications + calendar).
+//! Center clock and the date menu (media players, notifications, calendar).
 //! Honors the org.gnome.desktop.interface clock-* keys like GNOME Shell.
 
 use crate::notifications::Notifications;
@@ -69,9 +69,12 @@ fn build_popover(notifications: &Rc<Notifications>) -> gtk::Popover {
     let content = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     content.add_css_class("date-menu");
 
-    // Notification list (or empty state) and the Do Not Disturb switch.
-    let notifications = notifications.date_menu_section();
-    content.append(&notifications);
+    // Media players above the notification list (or empty state) and the
+    // Do Not Disturb switch.
+    let messages = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(12).build();
+    messages.append(&crate::media::section());
+    messages.append(&notifications.date_menu_section());
+    content.append(&messages);
     content.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 
     let calendar_column = gtk::Box::builder()

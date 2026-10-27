@@ -21,6 +21,20 @@ pub struct ShellState {
     pub monitor: Option<(i32, i32, i32, i32)>,
     /// Backlight level 0..1, or `None` without a controllable backlight.
     pub brightness: Option<f64>,
+    pub input_sources: Vec<InputSource>,
+    /// Index into `input_sources` of the active keyboard layout.
+    pub input_source: i32,
+}
+
+/// A keyboard layout from org.gnome.desktop.input-sources.
+#[derive(Clone, Debug, PartialEq)]
+pub struct InputSource {
+    /// XKB id, e.g. "de+nodeadkeys".
+    pub id: String,
+    /// Shown in the panel, e.g. "de".
+    pub short_name: String,
+    /// Shown in the menu, e.g. "German (no dead keys)".
+    pub display_name: String,
 }
 
 impl Default for ShellState {
@@ -32,6 +46,8 @@ impl Default for ShellState {
             n_workspaces: 1,
             monitor: None,
             brightness: None,
+            input_sources: Vec::new(),
+            input_source: 0,
         }
     }
 }
@@ -62,6 +78,19 @@ impl ShellState {
         }
         if let Ok(Some(brightness)) = dict.lookup::<f64>("brightness") {
             state.brightness = (brightness >= 0.0).then_some(brightness);
+        }
+        if let Ok(Some(sources)) = dict.lookup::<Vec<(String, String, String)>>("input-sources") {
+            state.input_sources = sources
+                .into_iter()
+                .map(|(id, short_name, display_name)| InputSource {
+                    id,
+                    short_name,
+                    display_name,
+                })
+                .collect();
+        }
+        if let Ok(Some(index)) = dict.lookup::<i32>("input-source") {
+            state.input_source = index;
         }
         state
     }
@@ -195,6 +224,10 @@ impl ShellClient {
 
     pub fn set_brightness(&self, value: f64) {
         self.call("SetBrightness", Some((value,).to_variant()));
+    }
+
+    pub fn set_input_source(&self, index: i32) {
+        self.call("SetInputSource", Some((index,).to_variant()));
     }
 
     pub fn log_out(&self) {
