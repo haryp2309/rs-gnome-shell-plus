@@ -34,6 +34,8 @@ const CONNECTIVITY_PORTAL: u32 = 2;
 const CONNECTIVITY_LIMITED: u32 = 3;
 
 const MAX_NETWORKS: usize = 8;
+// NM80211ApSecurityFlags
+const AP_SEC_KEY_MGMT_802_1X: u32 = 0x200;
 
 /// One visible network: all access points sharing an SSID.
 #[derive(Clone, PartialEq)]
@@ -43,6 +45,8 @@ struct Network {
     ap: String,
     strength: u8,
     secure: bool,
+    /// WPA/WPA2 Enterprise (802.1X), which needs more than a password.
+    enterprise: bool,
     active: bool,
 }
 
@@ -179,6 +183,7 @@ fn read_networks(conn: &gio::DBusConnection, device: &Device) -> Vec<Network> {
         let network = Network {
             strength: ap.get("Strength").unwrap_or(0),
             secure: flags("Flags") & 0x1 != 0 || flags("WpaFlags") != 0 || flags("RsnFlags") != 0,
+            enterprise: (flags("WpaFlags") | flags("RsnFlags")) & AP_SEC_KEY_MGMT_802_1X != 0,
             active: active_ap.as_deref() == Some(path.as_str()),
             ap: path,
             ssid,
@@ -187,6 +192,7 @@ fn read_networks(conn: &gio::DBusConnection, device: &Device) -> Vec<Network> {
             Some(known) => {
                 known.active |= network.active;
                 known.secure |= network.secure;
+                known.enterprise |= network.enterprise;
                 if network.strength > known.strength {
                     known.strength = network.strength;
                     known.ap = network.ap;
@@ -370,7 +376,10 @@ impl Section {
         }
         if let Some(saved) = self.saved_connection(&network.ssid) {
             self.activate(&saved, device, &network.ap);
-        } else if !network.secure {
+        } else if !network.enterprise {
+            // Like GNOME Shell: let NetworkManager fill in the settings from
+            // the access point; for a secured one it then asks our secret
+            // agent (network_agent.rs) for the password.
             let settings = HashMap::<String, HashMap<String, glib::Variant>>::new().to_variant();
             let args = glib::Variant::tuple_from_iter([
                 settings,
@@ -379,8 +388,7 @@ impl Section {
             ]);
             system::call(&self.conn, NM, NM_PATH, NM, "AddAndActivateConnection", Some(args));
         } else {
-            // A new secured network needs a password: until the panel has its
-            // own prompt (secret agent), let Settings handle it.
+            // Enterprise networks need certificates and EAP settings.
             system::open_settings("wifi");
         }
     }

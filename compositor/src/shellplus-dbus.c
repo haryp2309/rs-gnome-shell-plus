@@ -17,6 +17,10 @@
  *
  * ShowOSD relays org.gnome.Shell.ShowOSD requests (icon, label, level,
  * max_level, connector) to the panel, which draws the pop-up.
+ *
+ * SwitcherShow / SwitcherSelect / SwitcherHide drive the Alt-Tab pop-up
+ * (see shellplus-switcher.c): mode is "applications" or "windows", items
+ * are (app id, window title, number of windows), selected an index.
  */
 static const char introspection_xml[] =
   "<node>"
@@ -41,6 +45,15 @@ static const char introspection_xml[] =
   "    <signal name='ShowOSD'>"
   "      <arg type='a{sv}' name='params'/>"
   "    </signal>"
+  "    <signal name='SwitcherShow'>"
+  "      <arg type='s' name='mode'/>"
+  "      <arg type='a(ssi)' name='items'/>"
+  "      <arg type='i' name='selected'/>"
+  "    </signal>"
+  "    <signal name='SwitcherSelect'>"
+  "      <arg type='i' name='selected'/>"
+  "    </signal>"
+  "    <signal name='SwitcherHide'/>"
   "  </interface>"
   "</node>";
 
@@ -184,6 +197,20 @@ shellplus_dbus_emit_show_osd (ShellPlusDBus *self,
   g_dbus_connection_emit_signal (self->connection, NULL, SHELLPLUS_DBUS_PATH,
                                  SHELLPLUS_DBUS_IFACE, "ShowOSD",
                                  g_variant_new ("(@a{sv})", params), NULL);
+}
+
+void
+shellplus_dbus_emit (ShellPlusDBus *self,
+                     const char    *signal_name,
+                     GVariant      *params)
+{
+  g_autoptr (GVariant) sunk = g_variant_ref_sink (params);
+
+  if (!self->connection || !self->registration_id)
+    return;
+
+  g_dbus_connection_emit_signal (self->connection, NULL, SHELLPLUS_DBUS_PATH,
+                                 SHELLPLUS_DBUS_IFACE, signal_name, sunk, NULL);
 }
 
 void

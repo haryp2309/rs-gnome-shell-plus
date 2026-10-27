@@ -54,6 +54,15 @@ export GSK_RENDERER=gl  # no Vulkan device in the container
 export SHELLPLUS_PANEL=$CARGO_TARGET_DIR/debug/gnome-shell-plus-panel
 export SHELLPLUS_PANEL_DEBUG=1
 export MUTTER_DEBUG=${MUTTER_DEBUG:-}
+# Compositor debug logs (g_debug) go to compositor.log.
+export G_MESSAGES_DEBUG=${G_MESSAGES_DEBUG:-shellplus}
+# SHELLPLUS_SLOW_ANIMATIONS=N slows window animations down N times (pass it
+# with docker run -e); the animations scenario defaults to 10 so it can
+# capture frames mid-animation.
+if [ "$SCENARIO" = animations ]; then
+  export SHELLPLUS_SLOW_ANIMATIONS=${SHELLPLUS_SLOW_ANIMATIONS:-10}
+fi
+export SHELLPLUS_SLOW_ANIMATIONS=${SHELLPLUS_SLOW_ANIMATIONS:-}
 "$BUILD/gnome-shell-plus" --wayland --headless --no-x11 \
   --wayland-display "$WAYLAND_DISPLAY" --virtual-monitor 1280x800 \
   >"$OUT/compositor.log" 2>&1 &

@@ -27,11 +27,13 @@ add_project_arguments(
 executable('gnome-shell-plus',
   'src/main.c',
   'src/shellplus-plugin.c',
+  'src/shellplus-animations.c',
   'src/shellplus-background.c',
   'src/shellplus-dbus.c',
   'src/shellplus-input-sources.c',
   'src/shellplus-panel-constraint.c',
   'src/shellplus-shell-dbus.c',
+  'src/shellplus-switcher.c',
   dependencies: deps,
   install: true,
 )

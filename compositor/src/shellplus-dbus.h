@@ -33,6 +33,11 @@ void shellplus_dbus_emit_state_changed (ShellPlusDBus *self,
 void shellplus_dbus_emit_show_osd (ShellPlusDBus *self,
                                    GVariant      *params);
 
+/* Emits any signal of the interface; params is a tuple (floating refs are sunk). */
+void shellplus_dbus_emit (ShellPlusDBus *self,
+                          const char    *signal_name,
+                          GVariant      *params);
+
 void shellplus_dbus_free (ShellPlusDBus *self);
 
 G_END_DECLS

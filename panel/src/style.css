@@ -260,3 +260,34 @@ button.menu-item:hover {
 .osd-card levelbar block.empty {
   background: none;
 }
+
+/* Alt-Tab switcher (switcher.rs), after GNOME Shell's .switcher-list. */
+.switcher-popup {
+  margin: 12px; /* room for the shadow */
+  padding: 12px;
+  border-radius: 24px;
+  background-color: #242424;
+  color: white;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.switcher-item {
+  padding: 12px 12px 6px;
+  border-radius: 14px;
+}
+
+.switcher-item.window {
+  padding: 12px;
+}
+
+.switcher-popup .switcher-item.selected {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.switcher-title {
+  padding: 2px 0 4px;
+}
+
+.switcher-arrow {
+  color: rgba(255, 255, 255, 0.8);
+}

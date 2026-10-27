@@ -7,6 +7,8 @@
 //!   SetValue(name, value) move a slider
 //!   CloseMenus()          close every open popover
 //!   ListNames() -> as     names of all named widgets
+//!   Inspect(name) -> a{sv} a widget's state: sensitive, visible, mapped,
+//!                         focused, and text for entries/labels
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -23,6 +25,10 @@ const XML: &str = r#"
     </method>
     <method name="CloseMenus"/>
     <method name="ListNames"><arg type="as" name="names" direction="out"/></method>
+    <method name="Inspect">
+      <arg type="s" name="name" direction="in"/>
+      <arg type="a{sv}" name="state" direction="out"/>
+    </method>
   </interface>
 </node>"#;
 
@@ -80,6 +86,10 @@ fn handle(method: &str, params: &glib::Variant) -> Result<Option<glib::Variant>,
                 .collect();
             Ok(Some((names,).to_variant()))
         }
+        "Inspect" => {
+            let (name,) = params.get::<(String,)>().ok_or("bad arguments")?;
+            Ok(Some((inspect(&find(&name)?),).to_variant()))
+        }
         _ => Err(format!("unknown method {method}")),
     }
 }
@@ -102,6 +112,20 @@ fn activate(widget: &gtk::Widget) {
     } else {
         widget.activate();
     }
+}
+
+fn inspect(widget: &gtk::Widget) -> std::collections::HashMap<String, glib::Variant> {
+    let mut state = std::collections::HashMap::new();
+    state.insert("sensitive".into(), widget.is_sensitive().to_variant());
+    state.insert("visible".into(), widget.is_visible().to_variant());
+    state.insert("mapped".into(), widget.is_mapped().to_variant());
+    state.insert("focused".into(), widget.has_focus().to_variant());
+    if let Some(editable) = widget.dynamic_cast_ref::<gtk::Editable>() {
+        state.insert("text".into(), editable.text().to_variant());
+    } else if let Some(label) = widget.downcast_ref::<gtk::Label>() {
+        state.insert("text".into(), label.label().to_variant());
+    }
+    state
 }
 
 fn find(name: &str) -> Result<gtk::Widget, String> {

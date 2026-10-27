@@ -57,6 +57,18 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
       rect->y = monitor.y + monitor.height - monitor.height / 8 - rect->height;
       break;
 
+    case SHELLPLUS_ROLE_SYSTEM_DIALOG:
+      /* The panel draws the dimmed backdrop and centers the card itself. */
+      *rect = monitor;
+      break;
+
+    case SHELLPLUS_ROLE_SWITCHER:
+      rect->width = MIN (rect->width, monitor.width);
+      rect->height = MIN (rect->height, monitor.height);
+      rect->x = monitor.x + (monitor.width - rect->width) / 2;
+      rect->y = monitor.y + (monitor.height - rect->height) / 2;
+      break;
+
     case SHELLPLUS_ROLE_NONE:
       return FALSE;
     }

@@ -53,11 +53,15 @@ and costs nothing per frame.
 | `compositor/src/shellplus-dbus.c` | The compositor ↔ panel interface |
 | `compositor/src/shellplus-shell-dbus.c` | The `org.gnome.Shell` subset gnome-settings-daemon uses (OSD, media keys) |
 | `compositor/src/shellplus-input-sources.c` | Keyboard layouts and Super+Space |
+| `compositor/src/shellplus-switcher.c` | Alt-Tab key handling (the pop-up is `panel/src/switcher.rs`) |
+| `compositor/src/shellplus-animations.c` | Window open/close/minimize and workspace-switch animations |
 | `panel/src/panel.rs` | Bar window, translucent/solid switching |
 | `panel/src/wallpaper.rs` | Blurred wallpaper strip |
 | `panel/src/quick_settings/` | Status icons and the quick settings menu |
 | `panel/src/notifications/` | Notification servers, banners, the date menu list |
 | `panel/src/osd.rs` | Volume/brightness pop-up |
+| `panel/src/system_dialog.rs` | Modal system dialog (dimmed backdrop, card, buttons) |
+| `panel/src/network_agent.rs` | NetworkManager secret agent (Wi-Fi password prompt) |
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
 | `panel/src/clock.rs`, `workspaces.rs` | Clock/calendar, workspace indicator |
@@ -68,10 +72,10 @@ and costs nothing per frame.
 | Schema | Keys |
 | --- | --- |
 | `org.gnome.desktop.background` | `picture-uri`, `picture-uri-dark`, `picture-options`, `primary-color`, `secondary-color`, `color-shading-type` |
-| `org.gnome.desktop.interface` | `color-scheme`, `clock-format`, `clock-show-date`, `clock-show-seconds`, `clock-show-weekday`, `show-battery-percentage` |
+| `org.gnome.desktop.interface` | `enable-animations`, `color-scheme`, `clock-format`, `clock-show-date`, `clock-show-seconds`, `clock-show-weekday`, `show-battery-percentage` |
 | `org.gnome.desktop.notifications` | `show-banners` (Do Not Disturb), per-app settings |
 | `org.gnome.desktop.input-sources` | `sources` (XKB layouts), `mru-sources`, `xkb-options`, `xkb-model` |
-| `org.gnome.desktop.wm.keybindings` | `switch-input-source`, `switch-input-source-backward` (Super+Space) |
+| `org.gnome.desktop.wm.keybindings` | `switch-input-source(-backward)` (Super+Space), `switch-applications(-backward)`, `switch-windows(-backward)`, `switch-group(-backward)` |
 | `org.gnome.settings-daemon.plugins.color` | `night-light-enabled` |
 | `org.gnome.mutter` | `dynamic-workspaces`, plus everything Mutter reads itself (`org.gnome.desktop.wm.*` keybindings and preferences, etc.) |
 
@@ -183,19 +187,27 @@ Done:
 - notifications: `org.freedesktop.Notifications` and `org.gtk.Notifications`
   servers, banners (actions, critical, Do Not Disturb, per-app settings),
   grouped list in the date menu, unread indicator
+- Wi-Fi password prompts: a NetworkManager secret agent with GNOME's modal
+  "Authentication required" dialog (WPA/WPA3 personal, WEP, 802.1X
+  username/password); secured networks without a profile connect from the
+  Wi-Fi menu
 - volume/brightness pop-ups (OSD) and media keys: the compositor provides
   `org.gnome.Shell`'s `ShowOSD` and `GrabAccelerator(s)` for
   gnome-settings-daemon
 - media player controls (MPRIS) in the date menu
 - keyboard layouts: indicator and menu in the panel, Super+Space /
   Super+Shift+Space switching (most recently used first, like GNOME Shell)
+- Alt-Tab / Super+Tab app switcher and the window switcher, with GNOME's
+  pop-up (a quick tap switches without showing it)
+- window animations: open, close, minimize/unminimize, workspace slide
+  (follows `enable-animations`)
 
 Missing compared to GNOME Shell:
 
 - overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
-- Alt-Tab switcher, window animations
+- window thumbnails in the switcher, maximize animations
 - calendar events in the date menu
-- lock screen, polkit agent, Wi-Fi password prompts, keyring prompts, on-screen keyboard
+- lock screen, polkit agent, keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
 - IBus input methods (only XKB layouts are used), per-window layouts, the
   Super+Space switcher pop-up (a tap switches straight away), screenshot UI
 - VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters

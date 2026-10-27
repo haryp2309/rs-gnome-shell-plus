@@ -3,12 +3,15 @@ mod debug;
 mod ipc;
 mod keyboard;
 mod media;
+mod network_agent;
 mod notifications;
 mod osd;
 mod overlay;
 mod panel;
 mod quick_settings;
+mod switcher;
 mod system;
+mod system_dialog;
 mod wallpaper;
 mod workspaces;
 
@@ -30,7 +33,9 @@ fn main() -> glib::ExitCode {
         let client = ipc::ShellClient::new();
         let notifications = notifications::Notifications::install(app);
         osd::install(app, &client);
+        switcher::install(app, &client);
         panel::build(app, &client, &notifications).present();
+        network_agent::install(app);
         debug::install();
     });
     app.run()

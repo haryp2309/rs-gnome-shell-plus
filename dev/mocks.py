@@ -1,11 +1,13 @@
 """Fake system services for the headless test session, using python-dbusmock.
 
 Gives the panel something realistic to show: a Wi-Fi card with a few access
-points (one connected), an unplugged Ethernet port, a Bluetooth adapter with
-paired devices, a discharging battery, power profiles and airplane mode.
+points (one connected), an unplugged Ethernet port, NetworkManager's secret
+agent manager (mock_networkmanager.py), a Bluetooth adapter with paired
+devices, a discharging battery, power profiles and airplane mode.
 
 Runs until killed; prints "mocks ready" once everything is populated.
 """
+import os
 import time
 
 import dbus
@@ -23,7 +25,8 @@ def spawn(template, bus=BusType.SYSTEM, parameters=None):
 
 
 def setup_network():
-    nm = spawn("networkmanager")
+    # dbusmock's NetworkManager plus a secret-agent manager.
+    nm = spawn(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mock_networkmanager.py"))
     mock = nm.obj
 
     wifi = mock.AddWiFiDevice("mock_WiFi", "wlan0", 100)  # 100 = activated

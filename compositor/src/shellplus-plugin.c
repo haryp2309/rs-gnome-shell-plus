@@ -17,11 +17,13 @@
 #include <meta/window.h>
 #include <meta/workspace.h>
 
+#include "shellplus-animations.h"
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
 #include "shellplus-input-sources.h"
 #include "shellplus-panel-constraint.h"
 #include "shellplus-shell-dbus.h"
+#include "shellplus-switcher.h"
 
 #define UPDATE_DELAY_MS          50
 /* Apps usually need a frame or two to repaint after maximizing or after
@@ -40,6 +42,8 @@
 #define TOP_BAR_TITLE "Top Bar"
 #define BANNER_TITLE  "Notification Banner"
 #define OSD_TITLE     "On-Screen Display"
+#define SYSTEM_DIALOG_TITLE "System Dialog"
+#define SWITCHER_TITLE "Switcher"
 
 struct _ShellPlusPlugin
 {
@@ -49,6 +53,7 @@ struct _ShellPlusPlugin
   ShellPlusDBus *dbus;
   ShellPlusShellDBus *shell_dbus;
   ShellPlusInputSources *input_sources;
+  ShellPlusSwitcher *switcher;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
@@ -56,6 +61,9 @@ struct _ShellPlusPlugin
   MetaExternalConstraint *panel_constraint;
   MetaExternalConstraint *banner_constraint;
   MetaExternalConstraint *osd_constraint;
+  MetaExternalConstraint *system_dialog_constraint;
+  MetaExternalConstraint *switcher_constraint;
+  MetaWindow *system_dialog;
   int panel_height;
   gint64 panel_spawn_time;
   int panel_quick_crashes;
@@ -609,11 +617,78 @@ setup_overlay_window (ShellPlusPlugin *self,
   meta_window_add_external_constraint (window,
                                        role == SHELLPLUS_ROLE_BANNER ?
                                        self->banner_constraint :
+                                       role == SHELLPLUS_ROLE_SWITCHER ?
+                                       self->switcher_constraint :
                                        self->osd_constraint);
 
   /* Re-run the constraints in case the window is already placed. */
   meta_window_get_frame_rect (window, &frame);
   meta_window_move_frame (window, FALSE, frame.x, frame.y);
+}
+
+/* System dialogs (Wi-Fi passwords, …) are modal like GNOME Shell's: they
+ * dim the whole primary monitor, top bar included, and hold the keyboard
+ * focus until they close. A DOCK window is the only managed type stacked
+ * above the top bar (also a dock); `above` would put it *below* docks.
+ * Docks are never focused automatically, so focus it explicitly. */
+static void
+focus_system_dialog (ShellPlusPlugin *self)
+{
+  MetaWindow *dialog = self->system_dialog;
+
+  if (dialog && !meta_window_is_hidden (dialog) && !meta_window_has_focus (dialog))
+    meta_window_focus (dialog, meta_display_get_current_time_roundtrip (get_display (self)));
+}
+
+static void
+on_system_dialog_mapped (ShellPlusPlugin *self)
+{
+  meta_window_raise (self->system_dialog);
+  focus_system_dialog (self);
+}
+
+static void
+on_focus_window_changed (ShellPlusPlugin *self)
+{
+  MetaWindow *focus = meta_display_get_focus_window (get_display (self));
+
+  /* Popups of the dialog itself (e.g. an entry's context menu) are fine. */
+  if (self->system_dialog && focus != self->system_dialog &&
+      !(focus && meta_window_is_ancestor_of_transient (self->system_dialog, focus)))
+    focus_system_dialog (self);
+}
+
+static void
+on_system_dialog_unmanaged (MetaWindow      *window,
+                            ShellPlusPlugin *self)
+{
+  if (self->system_dialog == window)
+    self->system_dialog = NULL;
+}
+
+static void
+setup_system_dialog_window (ShellPlusPlugin *self,
+                            MetaWindow      *window)
+{
+  MtkRectangle monitor;
+
+  self->system_dialog = window;
+
+  meta_window_set_type (window, META_WINDOW_DOCK);
+  meta_window_hide_from_window_list (window);
+  meta_window_stick (window);
+  meta_window_add_external_constraint (window, self->system_dialog_constraint);
+  /* Not "unmanaged": Mutter moves the focus away before emitting that. */
+  g_signal_connect_object (window, "unmanaging",
+                           G_CALLBACK (on_system_dialog_unmanaged), self, 0);
+
+  /* A resize, not just a move, so that the client is told the new size
+   * even if it was already configured smaller (e.g. to the work area). */
+  if (get_primary_geometry (self, &monitor))
+    meta_window_move_resize_frame (window, FALSE, monitor.x, monitor.y,
+                                   monitor.width, monitor.height);
+  if (!meta_window_is_hidden (window))  /* the title came late */
+    on_system_dialog_mapped (self);
 }
 
 static ShellPlusRole
@@ -627,6 +702,10 @@ role_for_window (MetaWindow *window)
     return SHELLPLUS_ROLE_BANNER;
   if (g_strcmp0 (title, OSD_TITLE) == 0)
     return SHELLPLUS_ROLE_OSD;
+  if (g_strcmp0 (title, SYSTEM_DIALOG_TITLE) == 0)
+    return SHELLPLUS_ROLE_SYSTEM_DIALOG;
+  if (g_strcmp0 (title, SWITCHER_TITLE) == 0)
+    return SHELLPLUS_ROLE_SWITCHER;
   return SHELLPLUS_ROLE_NONE;
 }
 
@@ -643,7 +722,11 @@ setup_panel_client_window (ShellPlusPlugin *self,
       return TRUE;
     case SHELLPLUS_ROLE_BANNER:
     case SHELLPLUS_ROLE_OSD:
+    case SHELLPLUS_ROLE_SWITCHER:
       setup_overlay_window (self, window, role_for_window (window));
+      return TRUE;
+    case SHELLPLUS_ROLE_SYSTEM_DIALOG:
+      setup_system_dialog_window (self, window);
       return TRUE;
     case SHELLPLUS_ROLE_NONE:
       break;
@@ -723,6 +806,16 @@ spawn_panel (ShellPlusPlugin *self)
   self->panel_spawn_time = g_get_monotonic_time ();
   g_subprocess_wait_async (meta_wayland_client_get_subprocess (self->panel_client),
                            NULL, on_panel_exited, self);
+}
+
+/* The Alt-Tab switcher leaves out the panel's own windows. */
+static gboolean
+is_panel_client_window (MetaWindow *window,
+                        gpointer    user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  return self->panel_client && meta_wayland_client_owns_window (self->panel_client, window);
 }
 
 /* ------------------------------------------------------------------------ */
@@ -820,6 +913,18 @@ on_monitors_changed (ShellPlusPlugin *self)
 /* ------------------------------------------------------------------------ */
 /* MetaPlugin vfuncs                                                        */
 
+/* The panel's own windows (bar, banners, OSD) never animate. */
+static gboolean
+skip_animation (MetaWindow *window,
+                gpointer    user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  return window == self->panel_window ||
+         role_for_window (window) != SHELLPLUS_ROLE_NONE ||
+         (self->panel_client && meta_wayland_client_owns_window (self->panel_client, window));
+}
+
 static void
 shellplus_plugin_start (MetaPlugin *plugin)
 {
@@ -834,15 +939,21 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->panel_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_TOP_BAR);
   self->banner_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_BANNER);
   self->osd_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OSD);
+  self->switcher_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SWITCHER);
+  self->system_dialog_constraint =
+    shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SYSTEM_DIALOG);
   self->mutter_settings = g_settings_new ("org.gnome.mutter");
   self->dbus = shellplus_dbus_new (&dbus_handlers, self);
   self->shell_dbus = shellplus_shell_dbus_new (display, self->dbus);
   self->input_sources = shellplus_input_sources_new (display,
                                                      (ShellPlusInputSourcesChanged) publish_state,
                                                      self);
+  self->switcher = shellplus_switcher_new (display, self->dbus, is_panel_client_window, self);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
+  g_signal_connect_object (display, "notify::focus-window",
+                           G_CALLBACK (on_focus_window_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (display, "restacked",
                            G_CALLBACK (queue_update), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (wm, "active-workspace-changed",
@@ -856,6 +967,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   g_signal_connect_object (self->mutter_settings, "changed::dynamic-workspaces",
                            G_CALLBACK (queue_workspace_check), self, G_CONNECT_SWAPPED);
 
+  shellplus_animations_attach (plugin, skip_animation, self);
   update_backlight (self);
   spawn_panel (self);
   queue_workspace_check (self);
@@ -872,8 +984,20 @@ shellplus_plugin_map (MetaPlugin      *plugin,
 
   if (meta_window_actor_get_meta_window (actor) == self->panel_window)
     sync_panel_geometry (self);
+  if (self->system_dialog &&
+      meta_window_actor_get_meta_window (actor) == self->system_dialog)
+    on_system_dialog_mapped (self);
 
-  meta_plugin_map_completed (plugin, actor);
+  shellplus_animations_map (plugin, actor);
+}
+
+static gboolean
+shellplus_plugin_keybinding_filter (MetaPlugin     *plugin,
+                                   MetaKeyBinding *binding)
+{
+  ShellPlusPlugin *self = SHELLPLUS_PLUGIN (plugin);
+
+  return self->switcher && shellplus_switcher_filter_keybinding (self->switcher, binding);
 }
 
 static void
@@ -886,6 +1010,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_pointer (&self->switcher, shellplus_switcher_free);
   g_clear_pointer (&self->input_sources, shellplus_input_sources_free);
   g_clear_pointer (&self->shell_dbus, shellplus_shell_dbus_free);
   g_clear_pointer (&self->dbus, shellplus_dbus_free);
@@ -897,6 +1022,8 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_object (&self->panel_constraint);
   g_clear_object (&self->banner_constraint);
   g_clear_object (&self->osd_constraint);
+  g_clear_object (&self->switcher_constraint);
+  g_clear_object (&self->system_dialog_constraint);
   g_clear_object (&self->mutter_settings);
   g_free (self->color);
 
@@ -913,6 +1040,8 @@ shellplus_plugin_class_init (ShellPlusPluginClass *klass)
 
   plugin_class->start = shellplus_plugin_start;
   plugin_class->map = shellplus_plugin_map;
+  plugin_class->keybinding_filter = shellplus_plugin_keybinding_filter;
+  shellplus_animations_install (plugin_class);
 }
 
 static void

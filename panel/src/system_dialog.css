@@ -1,0 +1,64 @@
+/* System dialogs, modelled on GNOME Shell's .modal-dialog on its lightbox. */
+
+window.system-dialog {
+  background-color: transparent;
+  background-image: radial-gradient(circle farthest-corner at center,
+                                    rgba(0, 0, 0, 0.35), rgba(0, 0, 0, 0.6));
+}
+
+.system-dialog-card {
+  border-radius: 24px;
+  background-color: @dialog_bg_color;
+  color: @dialog_fg_color;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.06),
+              0 4px 24px 4px rgba(0, 0, 0, 0.35);
+}
+
+.system-dialog-card .message {
+  padding: 32px 32px 20px 32px;
+}
+
+.system-dialog-card .heading {
+  font-size: 15pt;
+  font-weight: 800;
+}
+
+.system-dialog-card .body {
+  margin-bottom: 6px;
+}
+
+.system-dialog-card .fields entry {
+  min-height: 40px;
+  padding-left: 12px;
+  padding-right: 12px;
+  border-radius: 12px;
+}
+
+.system-dialog-card .fields .error {
+  color: @error_color;
+  font-size: smaller;
+}
+
+.system-dialog-card .buttons {
+  padding: 12px 24px 24px 24px;
+}
+
+.system-dialog-card .buttons button {
+  min-height: 40px;
+  border-radius: 12px;
+  font-weight: bold;
+}
+
+.system-dialog-card .buttons button.default {
+  background-color: @accent_bg_color;
+  color: @accent_fg_color;
+}
+
+.system-dialog-card .buttons button.default:hover {
+  background-image: image(alpha(currentColor, 0.1));
+}
+
+.system-dialog-card .buttons button.default:disabled {
+  background-color: alpha(currentColor, 0.1);
+  color: inherit;
+}
