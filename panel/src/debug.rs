@@ -4,11 +4,14 @@
 //! headless test session, where there's no pointer to click with:
 //!
 //!   Activate(name)        open a menu button, click a button, flip a switch
-//!   SetValue(name, value) move a slider
+//!   SetValue(name, value) move a slider; for a calendar, select the day
+//!                         at Unix time `value` (local time)
 //!   CloseMenus()          close every open popover
 //!   ListNames() -> as     names of all named widgets
 //!   Inspect(name) -> a{sv} a widget's state: sensitive, visible, mapped,
-//!                         focused, and text for entries/labels
+//!                         focused, and text for entries/labels; for a
+//!                         calendar, the selected date as text (YYYY-MM-DD)
+//!                         and `marked` (the marked days of the month)
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
@@ -68,6 +71,11 @@ fn handle(method: &str, params: &glib::Variant) -> Result<Option<glib::Variant>,
         "SetValue" => {
             let (name, value) = params.get::<(String, f64)>().ok_or("bad arguments")?;
             let widget = find(&name)?;
+            if let Some(calendar) = widget.downcast_ref::<gtk::Calendar>() {
+                let date = glib::DateTime::from_unix_local(value as i64).map_err(|e| e.to_string())?;
+                calendar.select_day(&date);
+                return Ok(None);
+            }
             let range = widget.downcast_ref::<gtk::Range>().ok_or("not a slider")?;
             range.set_value(value);
             Ok(None)
@@ -124,6 +132,11 @@ fn inspect(widget: &gtk::Widget) -> std::collections::HashMap<String, glib::Vari
         state.insert("text".into(), editable.text().to_variant());
     } else if let Some(label) = widget.downcast_ref::<gtk::Label>() {
         state.insert("text".into(), label.label().to_variant());
+    } else if let Some(calendar) = widget.downcast_ref::<gtk::Calendar>() {
+        let date = calendar.date().format("%Y-%m-%d").map(|s| s.to_string()).unwrap_or_default();
+        state.insert("text".into(), date.to_variant());
+        let marked: Vec<u32> = (1..=31).filter(|&d| calendar.day_is_marked(d)).collect();
+        state.insert("marked".into(), marked.to_variant());
     }
     state
 }

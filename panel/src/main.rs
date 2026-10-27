@@ -1,3 +1,4 @@
+mod calendar;
 mod clock;
 mod debug;
 mod ipc;
@@ -8,6 +9,7 @@ mod notifications;
 mod osd;
 mod overlay;
 mod panel;
+mod polkit_agent;
 mod quick_settings;
 mod switcher;
 mod system;
@@ -36,6 +38,7 @@ fn main() -> glib::ExitCode {
         switcher::install(app, &client);
         panel::build(app, &client, &notifications).present();
         network_agent::install(app);
+        polkit_agent::install(app);
         debug::install();
     });
     app.run()

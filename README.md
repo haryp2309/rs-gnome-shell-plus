@@ -62,8 +62,10 @@ and costs nothing per frame.
 | `panel/src/osd.rs` | Volume/brightness pop-up |
 | `panel/src/system_dialog.rs` | Modal system dialog (dimmed backdrop, card, buttons) |
 | `panel/src/network_agent.rs` | NetworkManager secret agent (Wi-Fi password prompt) |
+| `panel/src/polkit_agent.rs` | polkit authentication agent (administrator password prompt) |
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
+| `panel/src/calendar/` | Calendar events in the date menu (GNOME Shell's calendar server) |
 | `panel/src/clock.rs`, `workspaces.rs` | Clock/calendar, workspace indicator |
 | `panel/src/style.css` | GNOME Shell-like styling |
 
@@ -128,8 +130,10 @@ screenshots and logs to `dev/out/<scenario>/`. The session has:
 
 - a 1280×800 virtual monitor, captured through Mutter's ScreenCast API;
 - a fake system bus with mocked NetworkManager (Wi-Fi networks, Ethernet),
-  BlueZ (paired devices), UPower (battery), power-profiles-daemon and
-  gsd-rfkill (`dev/mocks.py`, using python-dbusmock);
+  BlueZ (paired devices), UPower (battery), power-profiles-daemon,
+  gsd-rfkill and polkitd (`dev/mocks.py`, using python-dbusmock), plus a
+  fake polkit helper that accepts the password `hunter2`
+  (`dev/fake_polkit_helper.py`);
 - PipeWire with fake speakers, headphones and a microphone;
 - real pointer and keyboard input through Mutter's RemoteDesktop API
   (`Session.click`, `Session.key` in `dev/driver.py`);
@@ -191,10 +195,21 @@ Done:
   "Authentication required" dialog (WPA/WPA3 personal, WEP, 802.1X
   username/password); secured networks without a profile connect from the
   Wi-Fi menu
+- polkit authentication agent: GNOME's "Authentication Required" dialog
+  with the user's avatar and real name (AccountsService, else passwd), a
+  user picker when several identities may authenticate, and retries; runs
+  polkit's helper through `polkit-agent-helper.socket` or the setuid
+  `polkit-agent-helper-1`
 - volume/brightness pop-ups (OSD) and media keys: the compositor provides
   `org.gnome.Shell`'s `ShowOSD` and `GrabAccelerator(s)` for
   gnome-settings-daemon
 - media player controls (MPRIS) in the date menu
+- calendar events in the date menu: days with events are marked and the
+  selected day's events are listed under the calendar (clicking opens GNOME
+  Calendar). They come from `gnome-shell-calendar-server`
+  (org.gnome.Shell.CalendarServer, evolution-data-server), which the panel
+  starts through D-Bus activation when the menu opens; without GNOME Shell
+  installed the events part stays hidden
 - keyboard layouts: indicator and menu in the panel, Super+Space /
   Super+Shift+Space switching (most recently used first, like GNOME Shell)
 - Alt-Tab / Super+Tab app switcher and the window switcher, with GNOME's
@@ -206,8 +221,9 @@ Missing compared to GNOME Shell:
 
 - overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
 - window thumbnails in the switcher, maximize animations
-- calendar events in the date menu
-- lock screen, polkit agent, keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
+- calendar: no world clocks, weather or week numbers; events come only
+  from GNOME Shell's calendar server
+- lock screen, keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
 - IBus input methods (only XKB layouts are used), per-window layouts, the
   Super+Space switcher pop-up (a tap switches straight away), screenshot UI
 - VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters

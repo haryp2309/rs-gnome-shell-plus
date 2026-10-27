@@ -53,6 +53,12 @@ export WAYLAND_DISPLAY=wayland-test
 export GSK_RENDERER=gl  # no Vulkan device in the container
 export SHELLPLUS_PANEL=$CARGO_TARGET_DIR/debug/gnome-shell-plus-panel
 export SHELLPLUS_PANEL_DEBUG=1
+# The polkit agent runs a fake helper (any password but "hunter2" fails) and
+# tries a helper socket that only the polkit scenario provides; a session id
+# for its registration, since there's no logind.
+export SHELLPLUS_POLKIT_HELPER=/src/dev/fake_polkit_helper.py
+export SHELLPLUS_POLKIT_HELPER_SOCKET=$XDG_RUNTIME_DIR/polkit-agent-helper.socket
+export XDG_SESSION_ID=${XDG_SESSION_ID:-shellplus-test}
 export MUTTER_DEBUG=${MUTTER_DEBUG:-}
 # Compositor debug logs (g_debug) go to compositor.log.
 export G_MESSAGES_DEBUG=${G_MESSAGES_DEBUG:-shellplus}

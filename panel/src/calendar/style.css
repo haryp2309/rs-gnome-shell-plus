@@ -1,0 +1,57 @@
+/* Calendar events in the date menu, modelled on GNOME Shell's events-button. */
+.date-menu .calendar-column button.events-button {
+  margin-top: 6px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background-color: alpha(currentColor, 0.08);
+  box-shadow: none;
+  font-weight: normal;
+  transition: background-color 150ms ease-out;
+}
+
+.date-menu .calendar-column button.events-button:hover {
+  background-color: alpha(currentColor, 0.12);
+}
+
+.date-menu .calendar-column button.events-button:active {
+  background-color: alpha(currentColor, 0.16);
+}
+
+/* No calendar app to open: not clickable-looking. */
+.date-menu .calendar-column button.events-button.inert:hover,
+.date-menu .calendar-column button.events-button.inert:active {
+  background-color: alpha(currentColor, 0.08);
+}
+
+.events-button .events-title {
+  font-weight: bold;
+  opacity: 0.6;
+  padding-bottom: 6px;
+}
+
+.events-button .event-summary {
+  font-weight: bold;
+}
+
+.events-button .event-time {
+  font-size: smaller;
+  font-feature-settings: "tnum";
+  opacity: 0.6;
+}
+
+/* Days with events: a dot under the number, like GNOME Shell, instead of
+ * Adwaita's tinted background for marked days. */
+.date-menu calendar > grid > label.day-number:checked {
+  background-image: radial-gradient(circle closest-side, currentColor 80%, transparent 100%);
+  background-size: 4px 4px;
+  background-repeat: no-repeat;
+  background-position: 50% 100%;
+}
+
+.date-menu calendar > grid > label.day-number:checked:not(:selected) {
+  background-color: transparent;
+}
+
+.date-menu calendar > grid > label.day-number:checked:not(:selected):hover {
+  background-color: alpha(currentColor, 0.07);
+}

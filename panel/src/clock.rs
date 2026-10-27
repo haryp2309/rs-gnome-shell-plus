@@ -1,4 +1,5 @@
-//! Center clock and the date menu (media players, notifications, calendar).
+//! Center clock and the date menu (media players, notifications, calendar
+//! and its events).
 //! Honors the org.gnome.desktop.interface clock-* keys like GNOME Shell.
 
 use crate::notifications::Notifications;
@@ -84,10 +85,12 @@ fn build_popover(notifications: &Rc<Notifications>) -> gtk::Popover {
         .build();
     let weekday = gtk::Label::builder().xalign(0.0).css_classes(["dim-label"]).build();
     let date = gtk::Label::builder().xalign(0.0).css_classes(["title-2"]).build();
-    let calendar = gtk::Calendar::new();
+    let calendar = gtk::Calendar::builder().name("date-menu-calendar").build();
     calendar_column.append(&weekday);
     calendar_column.append(&date);
     calendar_column.append(&calendar);
+    // The selected day's events, under the calendar like in GNOME Shell.
+    calendar_column.append(&crate::calendar::section(&calendar));
     content.append(&calendar_column);
 
     let popover = crate::panel::menu_popover(&content);

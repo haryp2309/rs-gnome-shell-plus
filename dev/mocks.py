@@ -3,7 +3,8 @@
 Gives the panel something realistic to show: a Wi-Fi card with a few access
 points (one connected), an unplugged Ethernet port, NetworkManager's secret
 agent manager (mock_networkmanager.py), a Bluetooth adapter with paired
-devices, a discharging battery, power profiles and airplane mode.
+devices, a discharging battery, power profiles, airplane mode and polkitd's
+Authority with authentication agent registration (mock_polkit.py).
 
 Runs until killed; prints "mocks ready" once everything is populated.
 """
@@ -84,6 +85,10 @@ def setup_bluetooth():
     return bluez
 
 
+def setup_polkit():
+    return spawn(os.path.join(os.path.dirname(os.path.abspath(__file__)), "mock_polkit.py"))
+
+
 def setup_power():
     upower = spawn("upower", parameters={"DaemonVersion": "1.90", "OnBattery": True})
     # type=battery, state=discharging, 76 %, ..., is_present, icon, warning level
@@ -104,7 +109,7 @@ def setup_rfkill():
 
 
 def main():
-    mocks = [setup_network(), setup_bluetooth(), *setup_power(), setup_rfkill()]
+    mocks = [setup_network(), setup_bluetooth(), *setup_power(), setup_rfkill(), setup_polkit()]
     print("mocks ready", flush=True)
     try:
         while True:
