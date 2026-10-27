@@ -20,8 +20,9 @@ compositor:
 panel:
 	cargo build --release --manifest-path panel/Cargo.toml --target-dir $(BUILDDIR)/panel
 
-install: all
-	meson install -C $(BUILDDIR)/compositor --destdir "$(DESTDIR)"
+# Doesn't build, so `make && sudo make install` never compiles as root.
+install:
+	meson install -C $(BUILDDIR)/compositor --no-rebuild --destdir "$(DESTDIR)"
 	install -Dm755 $(PANEL_BIN) $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-panel
 	install -Dm755 data/gnome-shell-plus-session $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-session
 	install -Dm644 data/gnome-shell-plus.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop
