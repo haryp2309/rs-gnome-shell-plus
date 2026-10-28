@@ -6,6 +6,8 @@
 #include <cairo.h>
 #include <errno.h>
 #include <gio/gunixfdlist.h>
+#include <meta/compositor.h>
+#include <meta/display.h>
 #include <meta/meta-window-actor.h>
 #include <meta/workspace.h>
 #include <sys/mman.h>
@@ -92,6 +94,10 @@ struct _ShellPlusOverview
   GSettings *shell_keybindings;  /* org.gnome.shell.keybindings, if installed */
 
   gboolean active;
+  gboolean releasing_focus;  /* a window was activated from the overview */
+  /* While active: an invisible clone of every listed window's actor (see
+   * keep_painting). */
+  GHashTable *clones;  /* MetaWindowActor -> ClutterClone */
   guint changed_id;
   guint damage_id;
   GHashTable *damaged;  /* window id (guint64*) set */
@@ -227,6 +233,59 @@ on_actor_damaged (MetaWindowActor   *actor,
     self->damage_id = g_timeout_add (DAMAGE_INTERVAL_MS, damage_cb, self);
 }
 
+/* The panel's overview window covers the windows it shows, so Mutter
+ * culls them: they're no longer painted, get no frame callbacks, stop
+ * drawing, and their previews freeze. An actor with mapped clones is never
+ * considered obscured (that's how GNOME Shell's own overview keeps its
+ * window clones live), so give each window an invisible clone while the
+ * overview is up. */
+static void
+on_cloned_actor_destroy (MetaWindowActor   *actor,
+                         ShellPlusOverview *self)
+{
+  ClutterActor *clone = g_hash_table_lookup (self->clones, actor);
+
+  g_hash_table_remove (self->clones, actor);
+  if (clone)
+    clutter_actor_destroy (clone);
+}
+
+static void
+keep_painting (ShellPlusOverview *self,
+               MetaWindowActor   *actor)
+{
+  MetaCompositor *compositor = meta_display_get_compositor (self->display);
+  ClutterActor *clone;
+  float x, y;
+
+  if (!self->active || g_hash_table_contains (self->clones, actor))
+    return;
+
+  clone = clutter_clone_new (CLUTTER_ACTOR (actor));
+  clutter_actor_get_position (CLUTTER_ACTOR (actor), &x, &y);
+  clutter_actor_set_position (clone, x, y);
+  clutter_actor_set_opacity (clone, 0);
+  clutter_actor_set_reactive (clone, FALSE);
+  clutter_actor_insert_child_below (CLUTTER_ACTOR (meta_compositor_get_stage (compositor)), clone, NULL);
+  g_hash_table_insert (self->clones, actor, clone);
+  g_signal_connect (actor, "destroy", G_CALLBACK (on_cloned_actor_destroy), self);
+}
+
+static void
+stop_painting_all (ShellPlusOverview *self)
+{
+  GHashTableIter iter;
+  gpointer actor, clone;
+
+  g_hash_table_iter_init (&iter, self->clones);
+  while (g_hash_table_iter_next (&iter, &actor, &clone))
+    {
+      g_signal_handlers_disconnect_by_func (actor, on_cloned_actor_destroy, self);
+      clutter_actor_destroy (clone);
+      g_hash_table_iter_remove (&iter);
+    }
+}
+
 /* The actor may not exist yet when the window is created; this is called
  * again whenever the list is read. */
 static void
@@ -235,6 +294,8 @@ watch_actor (ShellPlusOverview *self,
 {
   MetaWindowActor *actor = window_actor (window);
 
+  if (actor)
+    keep_painting (self, actor);
   if (!actor || g_object_get_data (G_OBJECT (actor), "shellplus-overview-watched"))
     return;
 
@@ -473,8 +534,22 @@ handle_method_call (GDBusConnection       *connection,
   if (g_strcmp0 (method_name, "SetOverviewActive") == 0)
     {
       g_variant_get (parameters, "(b)", &self->active);
-      if (!self->active)
-        g_hash_table_remove_all (self->damaged);
+      self->releasing_focus = FALSE;
+      if (self->active)
+        {
+          g_autoptr (GList) windows = meta_display_list_all_windows (self->display);
+
+          for (GList *l = windows; l; l = l->next)
+            {
+              if (is_listed (self, l->data))
+                watch_actor (self, l->data);
+            }
+        }
+      else
+        {
+          g_hash_table_remove_all (self->damaged);
+          stop_painting_all (self);
+        }
       g_dbus_method_invocation_return_value (invocation, NULL);
       return;
     }
@@ -494,6 +569,7 @@ handle_method_call (GDBusConnection       *connection,
     {
       MetaWorkspace *workspace = meta_window_get_workspace (window);
 
+      self->releasing_focus = TRUE;
       if (workspace && !meta_window_is_on_all_workspaces (window))
         meta_workspace_activate_with_focus (workspace, window, now);
       else
@@ -625,6 +701,7 @@ shellplus_overview_new (MetaDisplay             *display,
   self->filter = filter;
   self->user_data = user_data;
   self->damaged = g_hash_table_new_full (g_int64_hash, g_int64_equal, g_free, NULL);
+  self->clones = g_hash_table_new (NULL, NULL);
   self->node_info = g_dbus_node_info_new_for_xml (introspection_xml, NULL);
   self->cancellable = g_cancellable_new ();
   g_bus_get (G_BUS_TYPE_SESSION, self->cancellable, on_bus_ready, self);
@@ -642,6 +719,12 @@ shellplus_overview_new (MetaDisplay             *display,
   return self;
 }
 
+gboolean
+shellplus_overview_holds_focus (ShellPlusOverview *self)
+{
+  return self->active && !self->releasing_focus;
+}
+
 void
 shellplus_overview_free (ShellPlusOverview *self)
 {
@@ -653,6 +736,8 @@ shellplus_overview_free (ShellPlusOverview *self)
       meta_display_remove_keybinding (self->display, "toggle-application-view");
     }
   g_clear_object (&self->shell_keybindings);
+  stop_painting_all (self);
+  g_hash_table_unref (self->clones);
   windows = meta_display_list_all_windows (self->display);
   for (GList *l = windows; l; l = l->next)
     {

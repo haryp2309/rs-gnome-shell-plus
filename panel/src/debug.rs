@@ -9,12 +9,38 @@
 //!   CloseMenus()          close every open popover
 //!   ListNames() -> as     names of all named widgets
 //!   Inspect(name) -> a{sv} a widget's state: sensitive, visible, mapped,
-//!                         focused, and text for entries/labels; for a
-//!                         calendar, the selected date as text (YYYY-MM-DD)
-//!                         and `marked` (the marked days of the month)
+//!                         focused, opacity, `bounds` (x, y, width, height
+//!                         in its window), `classes` (CSS classes), and
+//!                         text for entries/labels; for a calendar, the
+//!                         selected date as text (YYYY-MM-DD) and `marked`
+//!                         (the marked days of the month)
+//!   SetText(name, text)   set an entry's text
+//!   ShowAppsTest()        open a window hosting the dash, app grid and
+//!                         app search (see app_grid/test_host.rs)
+//!
+//! Modules can also [`register`] named hooks for things that aren't
+//! widgets (e.g. "overview-toggle"); Activate(name) calls them with 0 and
+//! SetValue(name, value) with the value.
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use std::cell::RefCell;
+use std::collections::HashMap;
+use std::rc::Rc;
+
+thread_local! {
+    static HOOKS: RefCell<HashMap<String, Rc<dyn Fn(f64)>>> = RefCell::default();
+}
+
+/// Registers a debug hook: Activate(name) calls `f(0.0)`, SetValue(name, v)
+/// calls `f(v)`. Harmless when the debug interface is off.
+pub fn register(name: &str, f: impl Fn(f64) + 'static) {
+    HOOKS.with(|hooks| hooks.borrow_mut().insert(name.to_owned(), Rc::new(f)));
+}
+
+fn hook(name: &str) -> Option<Rc<dyn Fn(f64)>> {
+    HOOKS.with(|hooks| hooks.borrow().get(name).cloned())
+}
 
 const NAME: &str = "org.gnome.ShellPlus.PanelDebug";
 const PATH: &str = "/org/gnome/ShellPlus/PanelDebug";
@@ -27,6 +53,11 @@ const XML: &str = r#"
       <arg type="d" name="value" direction="in"/>
     </method>
     <method name="CloseMenus"/>
+    <method name="SetText">
+      <arg type="s" name="name" direction="in"/>
+      <arg type="s" name="text" direction="in"/>
+    </method>
+    <method name="ShowAppsTest"/>
     <method name="ListNames"><arg type="as" name="names" direction="out"/></method>
     <method name="Inspect">
       <arg type="s" name="name" direction="in"/>
@@ -65,11 +96,19 @@ fn handle(method: &str, params: &glib::Variant) -> Result<Option<glib::Variant>,
     match method {
         "Activate" => {
             let (name,) = params.get::<(String,)>().ok_or("bad arguments")?;
+            if let Some(hook) = hook(&name) {
+                hook(0.0);
+                return Ok(None);
+            }
             activate(&find(&name)?);
             Ok(None)
         }
         "SetValue" => {
             let (name, value) = params.get::<(String, f64)>().ok_or("bad arguments")?;
+            if let Some(hook) = hook(&name) {
+                hook(value);
+                return Ok(None);
+            }
             let widget = find(&name)?;
             if let Some(calendar) = widget.downcast_ref::<gtk::Calendar>() {
                 let date = glib::DateTime::from_unix_local(value as i64).map_err(|e| e.to_string())?;
@@ -78,6 +117,15 @@ fn handle(method: &str, params: &glib::Variant) -> Result<Option<glib::Variant>,
             }
             let range = widget.downcast_ref::<gtk::Range>().ok_or("not a slider")?;
             range.set_value(value);
+            Ok(None)
+        }
+        "SetText" => {
+            let (name, text) = params.get::<(String, String)>().ok_or("bad arguments")?;
+            find(&name)?.dynamic_cast::<gtk::Editable>().map_err(|_| "not an entry")?.set_text(&text);
+            Ok(None)
+        }
+        "ShowAppsTest" => {
+            crate::app_grid::test_host::open();
             Ok(None)
         }
         "CloseMenus" => {
@@ -128,6 +176,18 @@ fn inspect(widget: &gtk::Widget) -> std::collections::HashMap<String, glib::Vari
     state.insert("visible".into(), widget.is_visible().to_variant());
     state.insert("mapped".into(), widget.is_mapped().to_variant());
     state.insert("focused".into(), widget.has_focus().to_variant());
+    state.insert("opacity".into(), widget.opacity().to_variant());
+    let classes: Vec<String> = widget.css_classes().iter().map(|c| c.to_string()).collect();
+    state.insert("classes".into(), classes.to_variant());
+    if let Some(bounds) = widget.root().and_then(|root| widget.compute_bounds(&root)) {
+        let bounds = (
+            bounds.x() as f64,
+            bounds.y() as f64,
+            bounds.width() as f64,
+            bounds.height() as f64,
+        );
+        state.insert("bounds".into(), bounds.to_variant());
+    }
     if let Some(editable) = widget.dynamic_cast_ref::<gtk::Editable>() {
         state.insert("text".into(), editable.text().to_variant());
     } else if let Some(label) = widget.downcast_ref::<gtk::Label>() {

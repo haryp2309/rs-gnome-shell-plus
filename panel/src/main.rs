@@ -1,3 +1,4 @@
+mod app_grid;
 mod calendar;
 mod clock;
 mod debug;
@@ -8,6 +9,7 @@ mod network_agent;
 mod notifications;
 mod osd;
 mod overlay;
+mod overview;
 mod panel;
 mod polkit_agent;
 mod quick_settings;
@@ -36,7 +38,18 @@ fn main() -> glib::ExitCode {
         let notifications = notifications::Notifications::install(app);
         osd::install(app, &client);
         switcher::install(app, &client);
-        panel::build(app, &client, &notifications).present();
+        let overview = overview::install(app, &client);
+        let on_activities: std::rc::Rc<dyn Fn()> = {
+            let overview = overview.clone();
+            std::rc::Rc::new(move || overview.toggle())
+        };
+        let top_bar = panel::build(app, &client, &notifications, on_activities);
+        overview.connect_active(glib::clone!(
+            #[strong]
+            top_bar,
+            move |active| top_bar.set_overview(active)
+        ));
+        top_bar.window.present();
         network_agent::install(app);
         polkit_agent::install(app);
         debug::install();

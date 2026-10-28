@@ -23,6 +23,10 @@ ShellPlusOverview *shellplus_overview_new (MetaDisplay             *display,
 void shellplus_overview_request (ShellPlusOverview *self,
                                  const char        *mode);
 
+/* TRUE while the overview is up and should keep the keyboard focus (e.g.
+ * across workspace switches), until the panel activates a window. */
+gboolean shellplus_overview_holds_focus (ShellPlusOverview *self);
+
 void shellplus_overview_free (ShellPlusOverview *self);
 
 G_END_DECLS

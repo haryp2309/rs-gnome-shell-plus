@@ -55,6 +55,40 @@ pub fn render(request: Request, callback: impl FnOnce(Option<gdk::Texture>) + 's
     });
 }
 
+/// Renders the whole desktop background of a `width` x `height` monitor at
+/// `scale`, unblurred (the overview's workspace cards).
+pub fn render_desktop(width: i32, height: i32, scale: i32, callback: impl FnOnce(Option<gdk::Texture>) + 'static) {
+    let background = read_settings();
+
+    glib::spawn_future_local(async move {
+        let result = gio::spawn_blocking(move || {
+            let (w, h) = ((width * scale).max(1), (height * scale).max(1));
+            let mut surface = cairo::ImageSurface::create(cairo::Format::ARgb32, w, h).ok()?;
+            {
+                let cr = cairo::Context::new(&surface).ok()?;
+                let (r, g, b) = background.color;
+                cr.set_source_rgb(r, g, b);
+                cr.paint().ok()?;
+                if let Some(file) = background.file.as_deref() {
+                    if background.style != "none" {
+                        paint_image(&cr, file, &background.style, w as f64, h as f64, scale as f64);
+                    }
+                }
+            }
+            surface.flush();
+            let stride = surface.stride() as usize;
+            let data = surface.data().ok()?.to_vec();
+            Some((w, h, stride, data))
+        })
+        .await;
+        let texture = result.ok().flatten().map(|(w, h, stride, data)| {
+            gdk::MemoryTexture::new(w, h, gdk::MemoryFormat::B8g8r8a8Premultiplied, &glib::Bytes::from_owned(data), stride)
+                .upcast::<gdk::Texture>()
+        });
+        callback(texture);
+    });
+}
+
 fn read_settings() -> Background {
     let mut background = Background {
         file: None,

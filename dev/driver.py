@@ -78,22 +78,47 @@ class Session:
         self._rd = (rd_name, rd, stream)
         return self._rd
 
-    def click(self, x, y, button=0x110, settle=0.8):
-        """Real pointer click at stage coordinates (BTN_LEFT by default)."""
+    def move_to(self, x, y, settle=0.1):
+        """Moves the real pointer to stage coordinates (x, y)."""
         rd_name, rd, stream = self._remote_desktop()
         iface = rd_name + ".Session"
         # Relative motion works without a consumer on the screen-cast stream:
-        # pin the pointer to the top-left corner, then move to the target.
+        # pin the pointer to the bottom-right corner, then move to the
+        # target. (Not the top-left one: that's the hot corner.)
+        _, _, width, height = self.state()["monitor"]
         self._call(rd_name, rd, iface, "NotifyPointerMotionRelative",
-                   GLib.Variant("(dd)", (-10000.0, -10000.0)))
+                   GLib.Variant("(dd)", (10000.0, 10000.0)))
         self._call(rd_name, rd, iface, "NotifyPointerMotionRelative",
-                   GLib.Variant("(dd)", (float(x), float(y))))
-        time.sleep(0.1)
-        for pressed in (True, False):
-            self._call(rd_name, rd, iface, "NotifyPointerButton",
-                       GLib.Variant("(ib)", (button, pressed)))
-            time.sleep(0.05)
+                   GLib.Variant("(dd)", (float(x - (width - 1)), float(y - (height - 1)))))
         time.sleep(settle)
+
+    def move_by(self, dx, dy, settle=0.05):
+        """Moves the real pointer relative to where it is."""
+        rd_name, rd, _ = self._remote_desktop()
+        self._call(rd_name, rd, rd_name + ".Session", "NotifyPointerMotionRelative",
+                   GLib.Variant("(dd)", (float(dx), float(dy))))
+        time.sleep(settle)
+
+    def button(self, pressed, button=0x110, settle=0.05):
+        """Presses or releases a pointer button where the pointer is."""
+        rd_name, rd, _ = self._remote_desktop()
+        self._call(rd_name, rd, rd_name + ".Session", "NotifyPointerButton",
+                   GLib.Variant("(ib)", (button, pressed)))
+        time.sleep(settle)
+
+    def click(self, x, y, button=0x110, settle=0.8):
+        """Real pointer click at stage coordinates (BTN_LEFT by default)."""
+        self.move_to(x, y)
+        for pressed in (True, False):
+            self.button(pressed, button)
+        time.sleep(settle)
+
+    def inspect(self, name):
+        """The debug interface's Inspect(name) as a dict, or None."""
+        try:
+            return self.panel("Inspect", name, settle=0)[0]
+        except GLib.Error:
+            return None
 
     def key(self, keysym, settle=0.5):
         """Presses and releases a key by X keysym (e.g. 0xff1b for Escape)."""

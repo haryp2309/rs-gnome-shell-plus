@@ -68,6 +68,7 @@ struct _ShellPlusPlugin
   MetaExternalConstraint *switcher_constraint;
   MetaExternalConstraint *overview_constraint;
   MetaWindow *system_dialog;
+  MetaWindow *overview_window;
   int panel_height;
   gint64 panel_spawn_time;
   int panel_quick_crashes;
@@ -658,6 +659,15 @@ on_focus_window_changed (ShellPlusPlugin *self)
 {
   MetaWindow *focus = meta_display_get_focus_window (get_display (self));
 
+  /* Switching workspaces focuses the new workspace's top window; while the
+   * overview is up it keeps the focus (GNOME Shell's overview is modal). */
+  if (self->overview_window && focus != self->overview_window && !self->system_dialog &&
+      !(focus && meta_window_is_ancestor_of_transient (self->overview_window, focus)) &&
+      !meta_window_is_hidden (self->overview_window) &&
+      shellplus_overview_holds_focus (self->overview))
+    meta_window_focus (self->overview_window,
+                       meta_display_get_current_time_roundtrip (get_display (self)));
+
   /* Popups of the dialog itself (e.g. an entry's context menu) are fine. */
   if (self->system_dialog && focus != self->system_dialog &&
       !(focus && meta_window_is_ancestor_of_transient (self->system_dialog, focus)))
@@ -714,10 +724,55 @@ show_overview_window (ShellPlusPlugin *self,
 }
 
 static void
+on_overview_unmanaging (MetaWindow      *window,
+                        ShellPlusPlugin *self)
+{
+  if (self->overview_window == window)
+    self->overview_window = NULL;
+}
+
+/* Something (e.g. the overview being activated) can raise the overview
+ * above the top bar; put the bar back on top. */
+static void
+keep_top_bar_above_overview (ShellPlusPlugin *self)
+{
+  GSList *pair, *sorted;
+  gboolean overview_on_top;
+
+  if (!self->overview_window || !self->panel_window ||
+      meta_window_is_hidden (self->overview_window))
+    return;
+
+  pair = g_slist_prepend (g_slist_prepend (NULL, self->panel_window), self->overview_window);
+  sorted = meta_display_sort_windows_by_stacking (get_display (self), pair);  /* bottom first */
+  overview_on_top = g_slist_last (sorted)->data == self->overview_window;
+  g_slist_free (sorted);
+  g_slist_free (pair);
+
+  if (overview_on_top)
+    {
+      meta_window_raise (self->panel_window);
+      if (self->system_dialog)
+        meta_window_raise (self->system_dialog);
+    }
+}
+
+static void
+on_restacked (ShellPlusPlugin *self)
+{
+  keep_top_bar_above_overview (self);
+  queue_update (self);
+}
+
+static void
 setup_overview_window (ShellPlusPlugin *self,
                        MetaWindow      *window)
 {
   MtkRectangle monitor;
+
+  self->overview_window = window;
+  g_signal_connect_object (window, "unmanaging",
+                           G_CALLBACK (on_overview_unmanaging), self, 0);
 
   meta_window_set_type (window, META_WINDOW_DOCK);
   meta_window_hide_from_window_list (window);
@@ -1003,7 +1058,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   g_signal_connect_object (display, "notify::focus-window",
                            G_CALLBACK (on_focus_window_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (display, "restacked",
-                           G_CALLBACK (queue_update), self, G_CONNECT_SWAPPED);
+                           G_CALLBACK (on_restacked), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (wm, "active-workspace-changed",
                            G_CALLBACK (on_workspaces_changed), self, G_CONNECT_SWAPPED);
   g_signal_connect_object (wm, "workspace-added",

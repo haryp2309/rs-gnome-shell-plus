@@ -88,10 +88,7 @@ def notify_raw(summary, body, actions=(), hints=None, timeout=-1, app="Raw"):
 
 def move_pointer(x, y):
     """Moves the real pointer to stage coordinates without clicking."""
-    rd_name, rd, _ = s._remote_desktop()
-    for dx, dy in ((-10000.0, -10000.0), (float(x), float(y))):
-        s._call(rd_name, rd, rd_name + ".Session", "NotifyPointerMotionRelative",
-                GLib.Variant("(dd)", (dx, dy)))
+    s.move_to(x, y, settle=0)
     pump(0.3)
 
 

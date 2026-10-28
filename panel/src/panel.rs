@@ -1,5 +1,6 @@
 //! The top bar window: blurred-wallpaper backdrop when nothing touches the
-//! panel, or a solid fill matching the maximized window's header otherwise.
+//! panel, or a solid fill matching the maximized window's header otherwise;
+//! transparent while the overview is open. Also the hot corner.
 
 use crate::ipc::{ShellClient, ShellState};
 use crate::notifications::Notifications;
@@ -18,11 +19,29 @@ const FALLBACK_HEIGHT: i32 = 32;
 const MENU_OFFSET: i32 = 6;
 const TRANSITION_MS: u32 = 250;
 
+pub struct TopBar {
+    pub window: gtk::ApplicationWindow,
+    overview: Rc<Cell<bool>>,
+    apply: Rc<dyn Fn()>,
+}
+
+impl TopBar {
+    /// While the overview is open the bar is transparent with white text.
+    pub fn set_overview(&self, active: bool) {
+        if self.overview.replace(active) != active {
+            (self.apply)();
+        }
+    }
+}
+
+/// `on_activities` toggles the overview (the workspace indicator, which is
+/// GNOME's Activities button, and the hot corner).
 pub fn build(
     app: &adw::Application,
     client: &Rc<ShellClient>,
     notifications: &Rc<Notifications>,
-) -> gtk::ApplicationWindow {
+    on_activities: Rc<dyn Fn()>,
+) -> Rc<TopBar> {
     let client = client.clone();
 
     let window = gtk::ApplicationWindow::builder()
@@ -40,7 +59,7 @@ pub fn build(
         .build();
 
     let bar = gtk::CenterBox::builder().css_classes(["panel"]).build();
-    let workspaces = Workspaces::new(client.clone());
+    let workspaces = Workspaces::new(client.clone(), on_activities.clone());
     bar.set_start_widget(Some(workspaces.widget()));
     bar.set_center_widget(Some(&clock::build(notifications)));
     let end = gtk::Box::new(gtk::Orientation::Horizontal, 0);
@@ -83,16 +102,61 @@ pub fn build(
         adw::PropertyAnimationTarget::new(&backdrop, "opacity"),
     );
 
+    let overview = Rc::new(Cell::new(false));
+    let apply: Rc<dyn Fn()> = Rc::new(glib::clone!(
+        #[strong]
+        overview,
+        #[weak]
+        client,
+        move || apply_mode(&bar, &color_css, &fade, &client.state(), overview.get())
+    ));
+
     let last_monitor = Cell::new(None);
-    client.connect_state(move |state: &ShellState| {
-        apply_mode(&bar, &color_css, &fade, state);
-        workspaces.update(state.active_workspace, state.n_workspaces);
-        if last_monitor.replace(state.monitor) != state.monitor {
-            refresh_backdrop();
+    client.connect_state(glib::clone!(
+        #[strong]
+        apply,
+        move |state: &ShellState| {
+            apply();
+            workspaces.update(state.active_workspace, state.n_workspaces);
+            if last_monitor.replace(state.monitor) != state.monitor {
+                refresh_backdrop();
+            }
+        }
+    ));
+
+    hot_corner(&window, on_activities);
+
+    Rc::new(TopBar { window, overview, apply })
+}
+
+/// GNOME's hot corner: pushing the pointer into the top-left corner pixel
+/// toggles the overview, once per visit (org.gnome.desktop.interface
+/// enable-hot-corners).
+fn hot_corner(window: &gtk::ApplicationWindow, on_trigger: Rc<dyn Fn()>) {
+    const REARM_DISTANCE: f64 = 4.0;
+    let settings = system::settings("org.gnome.desktop.interface")
+        .filter(|s| s.settings_schema().is_some_and(|schema| schema.has_key("enable-hot-corners")));
+    let armed = Rc::new(Cell::new(true));
+    let rearm = armed.clone();
+    let check = Rc::new(move |motion: &gtk::EventControllerMotion, x: f64, y: f64| {
+        if x < 1.0 && y < 1.0 {
+            let enabled = settings.as_ref().map(|s| s.boolean("enable-hot-corners")).unwrap_or(true);
+            let buttons = gdk::ModifierType::BUTTON1_MASK
+                | gdk::ModifierType::BUTTON2_MASK
+                | gdk::ModifierType::BUTTON3_MASK;
+            if armed.replace(false) && enabled && !motion.current_event_state().intersects(buttons) {
+                on_trigger();
+            }
+        } else if x > REARM_DISTANCE || y > REARM_DISTANCE {
+            armed.set(true);
         }
     });
-
-    window
+    let motion = gtk::EventControllerMotion::new();
+    let on_enter = check.clone();
+    motion.connect_enter(move |m, x, y| on_enter(m, x, y));
+    motion.connect_motion(move |m, x, y| check(m, x, y));
+    motion.connect_leave(move |_| rearm.set(true));
+    window.add_controller(motion);
 }
 
 /// A popover for a panel menu (date menu, quick settings, …).
@@ -106,10 +170,22 @@ pub fn menu_popover(child: &impl IsA<gtk::Widget>) -> gtk::Popover {
     popover
 }
 
-fn apply_mode(bar: &gtk::CenterBox, color_css: &gtk::CssProvider, fade: &adw::TimedAnimation, state: &ShellState) {
-    let target_opacity = if state.solid { 0.0 } else { 1.0 };
+fn apply_mode(
+    bar: &gtk::CenterBox,
+    color_css: &gtk::CssProvider,
+    fade: &adw::TimedAnimation,
+    state: &ShellState,
+    overview: bool,
+) {
+    let solid = state.solid && !overview;
+    let target_opacity = if solid || overview { 0.0 } else { 1.0 };
 
-    if state.solid {
+    if overview {
+        bar.add_css_class("overview");
+    } else {
+        bar.remove_css_class("overview");
+    }
+    if solid {
         let c = state.color;
         // Relative luminance (sRGB weights) to pick light or dark text.
         let luminance = 0.2126 * c.red() + 0.7152 * c.green() + 0.0722 * c.blue();

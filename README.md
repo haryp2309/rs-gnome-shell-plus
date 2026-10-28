@@ -55,7 +55,9 @@ and costs nothing per frame.
 | `compositor/src/shellplus-input-sources.c` | Keyboard layouts and Super+Space |
 | `compositor/src/shellplus-switcher.c` | Alt-Tab key handling (the pop-up is `panel/src/switcher.rs`) |
 | `compositor/src/shellplus-animations.c` | Window open/close/minimize and workspace-switch animations |
-| `panel/src/panel.rs` | Bar window, translucent/solid switching |
+| `compositor/src/shellplus-overview.c` | The overview's compositor half: window list, window previews over shared memory, window actions, Super key |
+| `panel/src/panel.rs` | Bar window, translucent/solid switching, hot corner |
+| `panel/src/overview/` | Activities overview: window picker, workspaces and thumbnails, search entry, animations |
 | `panel/src/wallpaper.rs` | Blurred wallpaper strip |
 | `panel/src/quick_settings/` | Status icons and the quick settings menu |
 | `panel/src/notifications/` | Notification servers, banners, the date menu list |
@@ -66,6 +68,7 @@ and costs nothing per frame.
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
 | `panel/src/calendar/` | Calendar events in the date menu (GNOME Shell's calendar server) |
+| `panel/src/app_grid/` | Dash, app grid (pages, folders) and app search, for the overview to embed |
 | `panel/src/clock.rs`, `workspaces.rs` | Clock/calendar, workspace indicator |
 | `panel/src/style.css` | GNOME Shell-like styling |
 
@@ -74,7 +77,9 @@ and costs nothing per frame.
 | Schema | Keys |
 | --- | --- |
 | `org.gnome.desktop.background` | `picture-uri`, `picture-uri-dark`, `picture-options`, `primary-color`, `secondary-color`, `color-shading-type` |
-| `org.gnome.desktop.interface` | `enable-animations`, `color-scheme`, `clock-format`, `clock-show-date`, `clock-show-seconds`, `clock-show-weekday`, `show-battery-percentage` |
+| `org.gnome.desktop.interface` | `enable-animations`, `enable-hot-corners`, `color-scheme`, `clock-format`, `clock-show-date`, `clock-show-seconds`, `clock-show-weekday`, `show-battery-percentage` |
+| `org.gnome.shell` (if installed) | `favorite-apps`, `app-picker-layout` (otherwise favourites live in `~/.config/gnome-shell-plus/apps.ini`) |
+| `org.gnome.desktop.app-folders` | `folder-children`, and each folder's `name`, `translate`, `apps`, `categories`, `excluded-apps` |
 | `org.gnome.desktop.notifications` | `show-banners` (Do Not Disturb), per-app settings |
 | `org.gnome.desktop.input-sources` | `sources` (XKB layouts), `mru-sources`, `xkb-options`, `xkb-model` |
 | `org.gnome.desktop.wm.keybindings` | `switch-input-source(-backward)` (Super+Space), `switch-applications(-backward)`, `switch-windows(-backward)`, `switch-group(-backward)` |
@@ -216,10 +221,25 @@ Done:
   pop-up (a quick tap switches without showing it)
 - window animations: open, close, minimize/unminimize, workspace slide
   (follows `enable-animations`)
+- Activities overview (Super, the workspace indicator, the hot corner):
+  the window picker with live window previews laid out like GNOME Shell's,
+  hover close button/title/app icon, keyboard navigation, neighbouring
+  workspaces, workspace thumbnails (click to switch, drop a window on one
+  to move it), type-to-search, the zoom in/out animation from and to the
+  real window positions. The panel draws it; the compositor streams the
+  window previews (`org.gnome.ShellPlus.Overview`)
+- dash, app grid and app search widgets (`panel/src/app_grid/`):
+  favourites with drag-and-drop reordering, running apps with dots, the app
+  menu (New Window, favourites, App Details), paginated grid with page dots
+  and app folders, GNOME-like app search (`make shots SCENARIO=app_grid`
+  tests them in a stand-alone window)
 
 Missing compared to GNOME Shell:
 
-- overview, app grid, search, Super key, hot corner (`ToggleOverview` is stubbed in the D-Bus API)
+- app search has only the applications section (no search providers);
+  the app grid can't be rearranged by drag and drop
+- overview: the window picker only covers the primary monitor; no
+  window drag between monitors, no workspace thumbnail reordering
 - window thumbnails in the switcher, maximize animations
 - calendar: no world clocks, weather or week numbers; events come only
   from GNOME Shell's calendar server

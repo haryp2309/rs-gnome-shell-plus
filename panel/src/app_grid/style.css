@@ -1,0 +1,228 @@
+/* Dash, app grid and app search, modelled on GNOME Shell 46–50's overview.
+   The overview background is always dark, so colours are fixed rather than
+   following the light/dark style. */
+
+/* --- dash --------------------------------------------------------------- */
+
+.dash {
+  background-color: rgba(58, 58, 62, 0.88);
+  border-radius: 22px;
+  padding: 6px;
+  margin: 8px 0 12px 0;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.dash-items {
+  border-spacing: 2px;
+}
+
+button.dash-item {
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 16px;
+  background: none;
+  box-shadow: none;
+  color: white;
+  transition: background-color 150ms ease-out;
+}
+
+button.dash-item:hover,
+button.dash-item:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+button.dash-item:active,
+button.dash-item:checked {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+button.dash-item.show-apps:checked:hover {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.dash-separator {
+  background-color: rgba(255, 255, 255, 0.2);
+  min-width: 1px;
+  min-height: 38px;
+  margin: 0 6px;
+}
+
+/* GNOME's running-app dot. */
+.app-running-dot {
+  min-width: 5px;
+  min-height: 5px;
+  border-radius: 999px;
+  background-color: white;
+  margin-bottom: 2px;
+}
+
+.icon-dropshadow {
+  -gtk-icon-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
+}
+
+/* The invisible button the app menu hangs off. */
+menubutton.app-menu-anchor,
+menubutton.app-menu-anchor > button {
+  opacity: 0;
+  min-width: 1px;
+  min-height: 1px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  box-shadow: none;
+  background: none;
+}
+
+.app-menu {
+  padding: 6px;
+  min-width: 180px;
+}
+
+button.app-menu-item {
+  padding: 8px 12px;
+  border-radius: 8px;
+  font-weight: normal;
+}
+
+.app-menu separator {
+  margin: 4px 6px;
+}
+
+/* --- app grid ------------------------------------------------------------ */
+
+.app-grid label.app-name,
+.search-results label.app-name {
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.6);
+}
+
+button.app-grid-item,
+button.search-result-item {
+  padding: 10px 6px 8px 6px;
+  border-radius: 22px;
+  background: none;
+  box-shadow: none;
+  font-weight: normal;
+  color: white;
+  transition: background-color 150ms ease-out;
+}
+
+button.app-grid-item:hover,
+button.app-grid-item:focus-visible,
+button.search-result-item:hover,
+button.search-result-item:focus-visible {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+button.app-grid-item:active,
+button.search-result-item:active {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.app-grid-item .app-running-dot {
+  margin-bottom: 4px;
+}
+
+/* A folder: a rounded tile with a 2×2 preview of its apps. */
+.folder-icon {
+  background-color: rgba(255, 255, 255, 0.14);
+  border-radius: 24px;
+  padding: 8px;
+}
+
+button.app-folder:hover .folder-icon {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.app-folder-backdrop {
+  background-color: rgba(0, 0, 0, 0.45);
+}
+
+.app-folder-dialog {
+  background-color: rgb(46, 46, 50);
+  border-radius: 32px;
+  padding: 18px 24px 24px 24px;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+}
+
+.app-folder-dialog .folder-name {
+  color: white;
+  font-size: 18pt;
+  font-weight: 800;
+  margin-top: 6px;
+}
+
+/* Page dots. */
+.page-dots {
+  margin: 4px 0 8px 0;
+}
+
+button.page-dot {
+  padding: 5px;
+  min-width: 0;
+  min-height: 0;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+}
+
+button.page-dot .dot {
+  min-width: 10px;
+  min-height: 10px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.35);
+  transition: background-color 200ms ease-out;
+}
+
+button.page-dot:hover .dot {
+  background-color: rgba(255, 255, 255, 0.6);
+}
+
+button.page-dot.active .dot {
+  background-color: white;
+}
+
+/* --- search ---------------------------------------------------------------- */
+
+.search-section {
+  background-color: rgba(255, 255, 255, 0.07);
+  border-radius: 24px;
+  padding: 12px 24px;
+  margin: 12px 64px;
+}
+
+button.search-result-item.selected {
+  background-color: rgba(255, 255, 255, 0.12);
+}
+
+.search-statustext {
+  color: rgba(255, 255, 255, 0.75);
+  font-size: 20pt;
+  font-weight: bold;
+  margin-top: 96px;
+}
+
+/* --- test host (PanelDebug.ShowAppsTest) ------------------------------------- */
+
+window.shellplus-apps-test {
+  background-color: rgb(30, 30, 34);
+  background-image: radial-gradient(ellipse at top, rgb(52, 56, 70), rgb(24, 24, 28));
+  color: white;
+}
+
+.test-host-controls {
+  margin: 4px 8px;
+  opacity: 0.5;
+  font-size: smaller;
+}
+
+entry.test-host-search,
+.test-host-search {
+  margin-top: 12px;
+  border-radius: 999px;
+  min-height: 36px;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: white;
+}

@@ -1,0 +1,77 @@
+/* The Activities overview, modelled on GNOME Shell 46+. The overview is
+ * always dark, whatever the style. */
+
+window.overview {
+  background: none;
+}
+
+.overview-stage {
+  color: white;
+}
+
+/* Search entry: a pill centered at the top. */
+.overview-stage searchentry.overview-search {
+  min-height: 36px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.1);
+  color: white;
+  box-shadow: none;
+  outline: none;
+  caret-color: white;
+  transition: background-color 150ms ease-out, box-shadow 150ms ease-out;
+}
+
+.overview-stage searchentry.overview-search:hover {
+  background-color: rgba(255, 255, 255, 0.15);
+}
+
+.overview-stage searchentry.overview-search:focus-within {
+  background-color: rgba(255, 255, 255, 0.15);
+  box-shadow: inset 0 0 0 2px alpha(var(--accent-bg-color), 0.8);
+}
+
+.overview-stage searchentry.overview-search > text {
+  color: white;
+}
+
+.overview-stage searchentry.overview-search > text > placeholder {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.overview-stage searchentry.overview-search > image {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+/* Window previews: the close button at the top-right corner and the title
+ * under the icon, shown on hover. */
+.overview-stage button.overview-close {
+  min-width: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: 999px;
+  background-color: #3e3e42;
+  color: white;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+.overview-stage button.overview-close:hover {
+  background-color: #505055;
+}
+
+.overview-stage button.overview-close:active {
+  background-color: #5c5c62;
+}
+
+.overview-stage .overview-caption {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background-color: rgba(0, 0, 0, 0.75);
+  color: white;
+}
+
+/* The top bar while the overview is open: transparent, white text. */
+.panel.overview {
+  background-color: transparent;
+  color: white;
+}

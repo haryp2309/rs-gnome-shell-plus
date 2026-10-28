@@ -1,5 +1,6 @@
 //! The GNOME 45+ workspace indicator: one dot per workspace, with the
-//! active one stretched into a pill.
+//! active one stretched into a pill. It is the Activities button: clicking
+//! it toggles the overview, scrolling on it switches workspaces.
 
 use crate::ipc::ShellClient;
 use gtk::prelude::*;
@@ -15,11 +16,16 @@ pub struct Workspaces {
 }
 
 impl Workspaces {
-    pub fn new(client: Rc<ShellClient>) -> Rc<Self> {
+    pub fn new(client: Rc<ShellClient>, on_activities: Rc<dyn Fn()>) -> Rc<Self> {
         let root = gtk::Box::builder()
+            .name("activities")
             .css_classes(["panel-button", "workspaces"])
             .valign(gtk::Align::Fill)
+            .tooltip_text("Activities")
             .build();
+        let click = gtk::GestureClick::new();
+        click.connect_released(move |_, _, _, _| on_activities());
+        root.add_controller(click);
 
         let this = Rc::new(Self {
             root,
@@ -52,18 +58,13 @@ impl Workspaces {
         let n = n_workspaces.max(1) as usize;
 
         while dots.len() < n {
-            let index = dots.len() as i32;
+            // Clicks go to the whole indicator (the Activities button).
             let dot = gtk::Button::builder()
                 .css_classes(["ws-dot"])
                 .valign(gtk::Align::Center)
-                .tooltip_text(format!("Workspace {}", index + 1))
+                .can_target(false)
+                .focusable(false)
                 .build();
-            let weak = Rc::downgrade(self);
-            dot.connect_clicked(move |_| {
-                if let Some(this) = weak.upgrade() {
-                    this.client.activate_workspace(index);
-                }
-            });
             self.root.append(&dot);
             dots.push(dot);
         }
