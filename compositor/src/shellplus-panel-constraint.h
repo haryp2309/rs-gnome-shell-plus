@@ -14,6 +14,7 @@ typedef enum
   SHELLPLUS_ROLE_OSD,      /* volume/brightness pop-ups: centered, near the bottom */
   SHELLPLUS_ROLE_SYSTEM_DIALOG, /* modal prompts: cover the whole primary monitor */
   SHELLPLUS_ROLE_SWITCHER, /* Alt-Tab pop-up: centered */
+  SHELLPLUS_ROLE_OVERVIEW, /* covers the primary monitor, under the top bar */
 } ShellPlusRole;
 
 #define SHELLPLUS_TYPE_PANEL_CONSTRAINT (shellplus_panel_constraint_get_type ())

@@ -21,6 +21,7 @@
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
 #include "shellplus-input-sources.h"
+#include "shellplus-overview.h"
 #include "shellplus-panel-constraint.h"
 #include "shellplus-shell-dbus.h"
 #include "shellplus-switcher.h"
@@ -44,6 +45,7 @@
 #define OSD_TITLE     "On-Screen Display"
 #define SYSTEM_DIALOG_TITLE "System Dialog"
 #define SWITCHER_TITLE "Switcher"
+#define OVERVIEW_TITLE "Overview"
 
 struct _ShellPlusPlugin
 {
@@ -54,6 +56,7 @@ struct _ShellPlusPlugin
   ShellPlusShellDBus *shell_dbus;
   ShellPlusInputSources *input_sources;
   ShellPlusSwitcher *switcher;
+  ShellPlusOverview *overview;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
@@ -63,6 +66,7 @@ struct _ShellPlusPlugin
   MetaExternalConstraint *osd_constraint;
   MetaExternalConstraint *system_dialog_constraint;
   MetaExternalConstraint *switcher_constraint;
+  MetaExternalConstraint *overview_constraint;
   MetaWindow *system_dialog;
   int panel_height;
   gint64 panel_spawn_time;
@@ -200,7 +204,9 @@ dbus_activate_workspace (gpointer user_data,
 static void
 dbus_toggle_overview (gpointer user_data)
 {
-  g_message ("Overview requested (not implemented yet)");
+  ShellPlusPlugin *self = user_data;
+
+  shellplus_overview_request (self->overview, "toggle");
 }
 
 static void
@@ -691,6 +697,41 @@ setup_system_dialog_window (ShellPlusPlugin *self,
     on_system_dialog_mapped (self);
 }
 
+/* The overview covers the primary monitor below the top bar (which stays
+ * on top, as in GNOME Shell) and takes the keyboard focus for search. Like
+ * system dialogs it's a dock, the only type stacked with the top bar. */
+static void
+show_overview_window (ShellPlusPlugin *self,
+                      MetaWindow      *window)
+{
+  meta_window_raise (window);
+  if (self->panel_window)
+    meta_window_raise (self->panel_window);
+  if (self->system_dialog)
+    meta_window_raise (self->system_dialog);
+  else if (!meta_window_has_focus (window))
+    meta_window_focus (window, meta_display_get_current_time_roundtrip (get_display (self)));
+}
+
+static void
+setup_overview_window (ShellPlusPlugin *self,
+                       MetaWindow      *window)
+{
+  MtkRectangle monitor;
+
+  meta_window_set_type (window, META_WINDOW_DOCK);
+  meta_window_hide_from_window_list (window);
+  meta_window_stick (window);
+  meta_window_add_external_constraint (window, self->overview_constraint);
+  g_object_set_data (G_OBJECT (window), "shellplus-overview", GINT_TO_POINTER (1));
+
+  if (get_primary_geometry (self, &monitor))
+    meta_window_move_resize_frame (window, FALSE, monitor.x, monitor.y,
+                                   monitor.width, monitor.height);
+  if (!meta_window_is_hidden (window))
+    show_overview_window (self, window);
+}
+
 static ShellPlusRole
 role_for_window (MetaWindow *window)
 {
@@ -706,6 +747,8 @@ role_for_window (MetaWindow *window)
     return SHELLPLUS_ROLE_SYSTEM_DIALOG;
   if (g_strcmp0 (title, SWITCHER_TITLE) == 0)
     return SHELLPLUS_ROLE_SWITCHER;
+  if (g_strcmp0 (title, OVERVIEW_TITLE) == 0)
+    return SHELLPLUS_ROLE_OVERVIEW;
   return SHELLPLUS_ROLE_NONE;
 }
 
@@ -727,6 +770,9 @@ setup_panel_client_window (ShellPlusPlugin *self,
       return TRUE;
     case SHELLPLUS_ROLE_SYSTEM_DIALOG:
       setup_system_dialog_window (self, window);
+      return TRUE;
+    case SHELLPLUS_ROLE_OVERVIEW:
+      setup_overview_window (self, window);
       return TRUE;
     case SHELLPLUS_ROLE_NONE:
       break;
@@ -940,6 +986,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->banner_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_BANNER);
   self->osd_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OSD);
   self->switcher_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SWITCHER);
+  self->overview_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OVERVIEW);
   self->system_dialog_constraint =
     shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SYSTEM_DIALOG);
   self->mutter_settings = g_settings_new ("org.gnome.mutter");
@@ -949,6 +996,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
                                                      (ShellPlusInputSourcesChanged) publish_state,
                                                      self);
   self->switcher = shellplus_switcher_new (display, self->dbus, is_panel_client_window, self);
+  self->overview = shellplus_overview_new (display, is_panel_client_window, self);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
@@ -987,6 +1035,8 @@ shellplus_plugin_map (MetaPlugin      *plugin,
   if (self->system_dialog &&
       meta_window_actor_get_meta_window (actor) == self->system_dialog)
     on_system_dialog_mapped (self);
+  if (g_object_get_data (G_OBJECT (meta_window_actor_get_meta_window (actor)), "shellplus-overview"))
+    show_overview_window (self, meta_window_actor_get_meta_window (actor));
 
   shellplus_animations_map (plugin, actor);
 }
@@ -1010,6 +1060,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_pointer (&self->overview, shellplus_overview_free);
   g_clear_pointer (&self->switcher, shellplus_switcher_free);
   g_clear_pointer (&self->input_sources, shellplus_input_sources_free);
   g_clear_pointer (&self->shell_dbus, shellplus_shell_dbus_free);
@@ -1023,6 +1074,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_object (&self->banner_constraint);
   g_clear_object (&self->osd_constraint);
   g_clear_object (&self->switcher_constraint);
+  g_clear_object (&self->overview_constraint);
   g_clear_object (&self->system_dialog_constraint);
   g_clear_object (&self->mutter_settings);
   g_free (self->color);

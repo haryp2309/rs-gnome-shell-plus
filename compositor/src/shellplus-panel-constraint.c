@@ -58,7 +58,8 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
       break;
 
     case SHELLPLUS_ROLE_SYSTEM_DIALOG:
-      /* The panel draws the dimmed backdrop and centers the card itself. */
+    case SHELLPLUS_ROLE_OVERVIEW:
+      /* The panel draws the backdrop and lays out the contents itself. */
       *rect = monitor;
       break;
 
