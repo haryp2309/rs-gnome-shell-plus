@@ -19,6 +19,8 @@ const LOGIND_PATH: &str = "/org/freedesktop/login1";
 const LOGIND_MANAGER: &str = "org.freedesktop.login1.Manager";
 
 const SESSION_MANAGER: &str = "org.gnome.SessionManager";
+const SCREENSAVER: &str = "org.gnome.ScreenSaver";
+const SCREENSAVER_PATH: &str = "/org/gnome/ScreenSaver";
 const DISPLAY_MANAGER: &str = "org.gnome.DisplayManager";
 
 /// Seconds before a Restart / Power Off confirmation acts on its own.
@@ -31,7 +33,30 @@ pub fn system_row(ctx: &Rc<Ctx>) -> gtk::Box {
     row.append(&battery_button(ctx));
     row.append(&gtk::Box::builder().hexpand(true).build());
 
-    // No lock screen or screenshot UI exists yet, so no buttons for them.
+    let screenshot = circular_button("qs-screenshot", "camera-photo-symbolic", "Take Screenshot");
+    screenshot.connect_clicked(glib::clone!(
+        #[strong]
+        ctx,
+        move |_| {
+            ctx.popover.popdown();
+            // Once the menu is gone from the screen, ask the compositor for
+            // the screenshot UI (see panel/src/screenshot/).
+            glib::timeout_add_local_once(std::time::Duration::from_millis(250), || {
+                if let Some(bus) = system::session_bus() {
+                    system::call(
+                        &bus,
+                        "org.gnome.ShellPlus",
+                        "/org/gnome/ShellPlus",
+                        "org.gnome.ShellPlus.Screenshot",
+                        "ShowUI",
+                        Some(("",).to_variant()),
+                    );
+                }
+            });
+        }
+    ));
+    row.append(&screenshot);
+
     let settings = circular_button("qs-settings", "emblem-system-symbolic", "Settings");
     settings.connect_clicked(glib::clone!(
         #[strong]
@@ -42,6 +67,20 @@ pub fn system_row(ctx: &Rc<Ctx>) -> gtk::Box {
         }
     ));
     row.append(&settings);
+
+    let lock = circular_button("qs-lock", "system-lock-screen-symbolic", "Lock");
+    lock.connect_clicked(glib::clone!(
+        #[strong]
+        ctx,
+        move |_| {
+            ctx.popover.popdown();
+            if let Some(conn) = system::session_bus() {
+                system::call(&conn, SCREENSAVER, SCREENSAVER_PATH, SCREENSAVER, "Lock", None);
+            }
+        }
+    ));
+    lock.set_visible(!lock_disabled());
+    row.append(&lock);
 
     let revealer = power_menu(ctx);
     let power = circular_button("qs-power", "system-shutdown-symbolic", "Power Off / Log Out");
@@ -58,6 +97,11 @@ pub fn system_row(ctx: &Rc<Ctx>) -> gtk::Box {
     root.append(&row);
     root.append(&revealer);
     root
+}
+
+/// GNOME hides the Lock button when locking is locked down.
+fn lock_disabled() -> bool {
+    system::settings("org.gnome.desktop.lockdown").is_some_and(|s| s.boolean("disable-lock-screen"))
 }
 
 fn circular_button(name: &str, icon: &str, tooltip: &str) -> gtk::Button {

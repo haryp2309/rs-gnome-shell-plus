@@ -21,8 +21,10 @@
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
 #include "shellplus-input-sources.h"
+#include "shellplus-lock.h"
 #include "shellplus-overview.h"
 #include "shellplus-panel-constraint.h"
+#include "shellplus-screenshot.h"
 #include "shellplus-shell-dbus.h"
 #include "shellplus-switcher.h"
 
@@ -46,6 +48,8 @@
 #define SYSTEM_DIALOG_TITLE "System Dialog"
 #define SWITCHER_TITLE "Switcher"
 #define OVERVIEW_TITLE "Overview"
+#define SCREENSHOT_TITLE "Screenshot"
+#define LOCK_TITLE "Lock Screen"
 
 struct _ShellPlusPlugin
 {
@@ -57,6 +61,8 @@ struct _ShellPlusPlugin
   ShellPlusInputSources *input_sources;
   ShellPlusSwitcher *switcher;
   ShellPlusOverview *overview;
+  ShellPlusScreenshot *screenshot;
+  ShellPlusLock *lock;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
@@ -69,6 +75,7 @@ struct _ShellPlusPlugin
   MetaExternalConstraint *overview_constraint;
   MetaWindow *system_dialog;
   MetaWindow *overview_window;
+  MetaWindow *screenshot_window;
   int panel_height;
   gint64 panel_spawn_time;
   int panel_quick_crashes;
@@ -91,6 +98,8 @@ G_DEFINE_TYPE (ShellPlusPlugin, shellplus_plugin, META_TYPE_PLUGIN)
 
 static void spawn_panel (ShellPlusPlugin *self);
 static void queue_update (ShellPlusPlugin *self);
+static void show_screenshot_window (ShellPlusPlugin *self,
+                                    MetaWindow      *window);
 
 static MetaDisplay *
 get_display (ShellPlusPlugin *self)
@@ -167,6 +176,9 @@ build_state (ShellPlusPlugin *self)
       g_variant_builder_add (&builder, "{sv}", "input-source",
                              g_variant_new_int32 (shellplus_input_sources_get_current (self->input_sources)));
     }
+  if (self->lock)
+    g_variant_builder_add (&builder, "{sv}", "locked",
+                           g_variant_new_boolean (shellplus_lock_is_locked (self->lock)));
   return g_variant_builder_end (&builder);
 }
 
@@ -643,6 +655,8 @@ focus_system_dialog (ShellPlusPlugin *self)
 {
   MetaWindow *dialog = self->system_dialog;
 
+  if (self->lock && shellplus_lock_is_active (self->lock))
+    return;
   if (dialog && !meta_window_is_hidden (dialog) && !meta_window_has_focus (dialog))
     meta_window_focus (dialog, meta_display_get_current_time_roundtrip (get_display (self)));
 }
@@ -659,6 +673,10 @@ on_focus_window_changed (ShellPlusPlugin *self)
 {
   MetaWindow *focus = meta_display_get_focus_window (get_display (self));
 
+  /* While locked, the lock screen keeps the focus. */
+  if (self->lock && shellplus_lock_sync_focus (self->lock))
+    return;
+
   /* Switching workspaces focuses the new workspace's top window; while the
    * overview is up it keeps the focus (GNOME Shell's overview is modal). */
   if (self->overview_window && focus != self->overview_window && !self->system_dialog &&
@@ -667,6 +685,14 @@ on_focus_window_changed (ShellPlusPlugin *self)
       shellplus_overview_holds_focus (self->overview))
     meta_window_focus (self->overview_window,
                        meta_display_get_current_time_roundtrip (get_display (self)));
+
+  /* The screenshot UI is modal too. */
+  if (self->screenshot_window && focus != self->screenshot_window && !self->system_dialog &&
+      !meta_window_is_hidden (self->screenshot_window))
+    {
+      show_screenshot_window (self, self->screenshot_window);
+      return;
+    }
 
   /* Popups of the dialog itself (e.g. an entry's context menu) are fine. */
   if (self->system_dialog && focus != self->system_dialog &&
@@ -714,6 +740,9 @@ static void
 show_overview_window (ShellPlusPlugin *self,
                       MetaWindow      *window)
 {
+  if (self->lock && shellplus_lock_is_active (self->lock))
+    return;
+
   meta_window_raise (window);
   if (self->panel_window)
     meta_window_raise (self->panel_window);
@@ -787,6 +816,50 @@ setup_overview_window (ShellPlusPlugin *self,
     show_overview_window (self, window);
 }
 
+/* The screenshot UI covers the whole primary monitor, top bar included,
+ * and takes the keyboard focus (a dock, like system dialogs). */
+static void
+show_screenshot_window (ShellPlusPlugin *self,
+                        MetaWindow      *window)
+{
+  /* Not before it's mapped (and stacked), nor over the lock screen. */
+  if (!meta_window_get_compositor_private (window) ||
+      (self->lock && shellplus_lock_is_active (self->lock)))
+    return;
+  meta_window_raise (window);
+  if (!meta_window_has_focus (window))
+    meta_window_focus (window, meta_display_get_current_time_roundtrip (get_display (self)));
+}
+
+static void
+on_screenshot_unmanaging (MetaWindow      *window,
+                          ShellPlusPlugin *self)
+{
+  if (self->screenshot_window == window)
+    self->screenshot_window = NULL;
+}
+
+static void
+setup_screenshot_window (ShellPlusPlugin *self,
+                         MetaWindow      *window)
+{
+  MtkRectangle monitor;
+
+  meta_window_set_type (window, META_WINDOW_DOCK);
+  meta_window_hide_from_window_list (window);
+  meta_window_stick (window);
+  meta_window_add_external_constraint (window, self->system_dialog_constraint);
+  g_object_set_data (G_OBJECT (window), "shellplus-screenshot", GINT_TO_POINTER (1));
+  self->screenshot_window = window;
+  g_signal_connect_object (window, "unmanaging",
+                           G_CALLBACK (on_screenshot_unmanaging), self, 0);
+  if (get_primary_geometry (self, &monitor))
+    meta_window_move_resize_frame (window, FALSE, monitor.x, monitor.y,
+                                   monitor.width, monitor.height);
+  if (!meta_window_is_hidden (window))
+    show_screenshot_window (self, window);
+}
+
 static ShellPlusRole
 role_for_window (MetaWindow *window)
 {
@@ -804,6 +877,10 @@ role_for_window (MetaWindow *window)
     return SHELLPLUS_ROLE_SWITCHER;
   if (g_strcmp0 (title, OVERVIEW_TITLE) == 0)
     return SHELLPLUS_ROLE_OVERVIEW;
+  if (g_strcmp0 (title, SCREENSHOT_TITLE) == 0)
+    return SHELLPLUS_ROLE_SCREENSHOT;
+  if (g_strcmp0 (title, LOCK_TITLE) == 0)
+    return SHELLPLUS_ROLE_LOCK;
   return SHELLPLUS_ROLE_NONE;
 }
 
@@ -828,6 +905,12 @@ setup_panel_client_window (ShellPlusPlugin *self,
       return TRUE;
     case SHELLPLUS_ROLE_OVERVIEW:
       setup_overview_window (self, window);
+      return TRUE;
+    case SHELLPLUS_ROLE_SCREENSHOT:
+      setup_screenshot_window (self, window);
+      return TRUE;
+    case SHELLPLUS_ROLE_LOCK:
+      shellplus_lock_setup_window (self->lock, window);
       return TRUE;
     case SHELLPLUS_ROLE_NONE:
       break;
@@ -873,7 +956,9 @@ on_panel_exited (GObject      *source,
   else
     self->panel_quick_crashes = 0;
 
-  if (self->panel_quick_crashes >= PANEL_MAX_QUICK_CRASHES)
+  /* While locked the panel is the only way to unlock: keep trying. */
+  if (self->panel_quick_crashes >= PANEL_MAX_QUICK_CRASHES &&
+      !(self->lock && shellplus_lock_is_locked (self->lock)))
     {
       g_warning ("Panel keeps exiting; not restarting it again");
       return;
@@ -918,6 +1003,33 @@ is_panel_client_window (MetaWindow *window,
 
   return self->panel_client && meta_wayland_client_owns_window (self->panel_client, window);
 }
+
+static pid_t
+get_panel_pid (gpointer user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  return self->panel_client ? meta_wayland_client_get_pid (self->panel_client) : 0;
+}
+
+static void
+on_lock_changed (gpointer user_data)
+{
+  ShellPlusPlugin *self = user_data;
+  gboolean active = shellplus_lock_is_active (self->lock);
+
+  shellplus_overview_set_blocked (self->overview, active);
+  if (self->screenshot)
+    shellplus_screenshot_set_blocked (self->screenshot, active);
+  if (active)
+    shellplus_switcher_cancel (self->switcher);
+  publish_state (self);
+}
+
+static const ShellPlusLockHandlers lock_handlers = {
+  .changed = on_lock_changed,
+  .get_panel_pid = get_panel_pid,
+};
 
 /* ------------------------------------------------------------------------ */
 /* Signal plumbing                                                          */
@@ -1052,6 +1164,8 @@ shellplus_plugin_start (MetaPlugin *plugin)
                                                      self);
   self->switcher = shellplus_switcher_new (display, self->dbus, is_panel_client_window, self);
   self->overview = shellplus_overview_new (display, is_panel_client_window, self);
+  self->screenshot = shellplus_screenshot_new (display, get_panel_pid, self);
+  self->lock = shellplus_lock_new (display, self->shell_dbus, &lock_handlers, self);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
@@ -1090,8 +1204,12 @@ shellplus_plugin_map (MetaPlugin      *plugin,
   if (self->system_dialog &&
       meta_window_actor_get_meta_window (actor) == self->system_dialog)
     on_system_dialog_mapped (self);
+  if (self->lock)
+    shellplus_lock_window_mapped (self->lock, meta_window_actor_get_meta_window (actor));
   if (g_object_get_data (G_OBJECT (meta_window_actor_get_meta_window (actor)), "shellplus-overview"))
     show_overview_window (self, meta_window_actor_get_meta_window (actor));
+  if (g_object_get_data (G_OBJECT (meta_window_actor_get_meta_window (actor)), "shellplus-screenshot"))
+    show_screenshot_window (self, meta_window_actor_get_meta_window (actor));
 
   shellplus_animations_map (plugin, actor);
 }
@@ -1102,6 +1220,8 @@ shellplus_plugin_keybinding_filter (MetaPlugin     *plugin,
 {
   ShellPlusPlugin *self = SHELLPLUS_PLUGIN (plugin);
 
+  if (self->lock && shellplus_lock_filter_keybinding (self->lock, binding))
+    return TRUE;
   return self->switcher && shellplus_switcher_filter_keybinding (self->switcher, binding);
 }
 
@@ -1115,6 +1235,8 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_pointer (&self->screenshot, shellplus_screenshot_free);
+  g_clear_pointer (&self->lock, shellplus_lock_free);
   g_clear_pointer (&self->overview, shellplus_overview_free);
   g_clear_pointer (&self->switcher, shellplus_switcher_free);
   g_clear_pointer (&self->input_sources, shellplus_input_sources_free);

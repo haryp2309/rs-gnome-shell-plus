@@ -49,6 +49,9 @@ def say(line):
 
 
 def log(entry):
+    if entry.get("logged"):
+        return
+    entry["logged"] = True
     path = os.path.join(os.environ.get("XDG_RUNTIME_DIR", "/tmp"), "fake-polkit-helper.log")
     with open(path, "a") as f:
         f.write(json.dumps(entry) + "\n")
@@ -78,6 +81,7 @@ def main():
             target = pwd.getpwnam(user)
         except KeyError:
             entry["result"] = "no such user"
+            log(entry)
             say("FAILURE")
             return 0
 
@@ -99,12 +103,14 @@ def main():
                                                                   signature="sv")), signature="sa{sv}")
             authority.AuthenticationAgentResponse2(dbus.UInt32(os.getuid()), cookie, identity)
             entry["result"] = "success"
+            log(entry)  # before the result: the agent may stop us right after it
             say("SUCCESS")
         else:
             time.sleep(0.3)  # pam_unix's failure delay, shortened
             if answer == "locked":
                 say("PAM_ERROR_MSG " + escape("Your account is locked.\nAsk an administrator."))
             entry["result"] = "failure"
+            log(entry)
             say("FAILURE")
         return 0
     finally:

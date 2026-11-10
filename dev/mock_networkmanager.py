@@ -7,6 +7,14 @@ which needs the sender and so can't be an AddMethod snippet), and makes
 AddAndActivateConnection on a secured access point ask the agent for the
 secrets before the connection comes up, like the real thing.
 
+It also behaves a little more like NetworkManager for VPNs and hotspots:
+ActivateConnection replaces whatever was active on the device and brings
+VPN/WireGuard connections up through ACTIVATING (with StateChanged
+signals), DeactivateConnection only disconnects the connection's own
+devices (the template's disconnects every device), and
+AddAndActivateConnection with 802-11-wireless.mode "ap" stores the given
+settings as they are (a hotspot needs no access point or agent).
+
 Scenarios drive the agent through NetworkManager's own bus name (the
 panel only accepts calls from it) with a test interface on the same object,
 org.gnome.ShellPlus.MockAgentManager:
@@ -21,6 +29,7 @@ org.gnome.ShellPlus.MockAgentManager:
 import json
 
 import dbus
+from gi.repository import GLib
 import dbus.service
 import dbusmock
 from dbusmock.templates import networkmanager as nm
@@ -39,6 +48,11 @@ DEVICE_STATE_DISCONNECTED = 30
 DEVICE_STATE_ACTIVATED = 100
 ACTIVE_STATE_ACTIVATING = 1
 ACTIVE_STATE_ACTIVATED = 2
+ACTIVE_STATE_DEACTIVATING = 3
+ACTIVE_STATE_DEACTIVATED = 4
+VPN_STATE_ACTIVATED = 5
+VPN_STATE_DISCONNECTED = 7
+VPN_CONNECTION_IFACE = "org.freedesktop.NetworkManager.VPN.Connection"
 
 
 def plain(value):
@@ -160,8 +174,67 @@ def load(mock, parameters):
     # while the agent is asked; the reply decides whether it comes up.
     nm_obj = dbusmock.get_object(nm.MANAGER_OBJ)
     original = nm_obj.add_and_activate_connection
+    original_activate = nm_obj.activate_connection
+
+    def set_active_state(active, state):
+        active.UpdateProperties(nm.ACTIVE_CONNECTION_IFACE, {"State": dbus.UInt32(state)})
+        active.EmitSignal(nm.ACTIVE_CONNECTION_IFACE, "StateChanged", "uu",
+                          [dbus.UInt32(state), dbus.UInt32(0)])
+        if active.Get(nm.ACTIVE_CONNECTION_IFACE, "Vpn"):
+            vpn_state = VPN_STATE_ACTIVATED if state == ACTIVE_STATE_ACTIVATED else VPN_STATE_DISCONNECTED
+            active.EmitSignal(VPN_CONNECTION_IFACE, "VpnStateChanged", "uu",
+                              [dbus.UInt32(vpn_state), dbus.UInt32(0)])
+
+    def deactivate_connection(self, active_path):
+        active_path = str(active_path)
+        if active_path not in [str(p) for p in self.Get(nm.MANAGER_IFACE, "ActiveConnections")]:
+            raise dbus.exceptions.DBusException("Not active",
+                                                name=nm.MANAGER_IFACE + ".ConnectionNotActive")
+        active = dbusmock.get_object(active_path)
+        set_active_state(active, ACTIVE_STATE_DEACTIVATED)
+        devices = [str(d) for d in active.Get(nm.ACTIVE_CONNECTION_IFACE, "Devices")]
+        for dev in devices:
+            self.RemoveActiveConnection(dev, active_path)
+        if not devices:
+            remaining = [p for p in self.Get(nm.MANAGER_IFACE, "ActiveConnections") if str(p) != active_path]
+            self.SetProperty(nm.MANAGER_OBJ, nm.MANAGER_IFACE, "ActiveConnections",
+                             dbus.Array(remaining, signature="o"))
+            self.object_manager_emit_removed(active_path)
+            self.RemoveObject(active_path)
+        print(f"deactivated {active_path}", flush=True)
+
+    def activate_connection(self, conn, dev, ap):
+        # One connection per device: drop what was active there before.
+        if str(dev) != "/":
+            current = str(dbusmock.get_object(dev).Get(nm.DEVICE_IFACE, "ActiveConnection"))
+            if current != "/" and current in [str(p) for p in self.Get(nm.MANAGER_IFACE, "ActiveConnections")]:
+                deactivate_connection(self, current)
+        active_path = original_activate(self, conn, dev, ap)
+        conn_type = str(dbusmock.get_object(conn).settings["connection"]["type"])
+        print(f"activated {conn} ({conn_type}) as {active_path}", flush=True)
+        if conn_type in ("vpn", "wireguard"):
+            active = dbusmock.get_object(active_path)
+            set_active_state(active, ACTIVE_STATE_ACTIVATING)
+
+            def up():
+                if str(active_path) in [str(p) for p in self.Get(nm.MANAGER_IFACE, "ActiveConnections")]:
+                    set_active_state(active, ACTIVE_STATE_ACTIVATED)
+                return False
+
+            GLib.timeout_add(300, up)
+        return active_path
+
+    nm_obj.activate_connection = activate_connection
+    nm_obj.deactivate_connection = deactivate_connection
 
     def add_and_activate_connection(self, conn_conf, dev, ap):
+        wireless = conn_conf.get("802-11-wireless", {})
+        if str(wireless.get("mode", "")) == "ap":
+            # A hotspot: store the settings as given and bring it up.
+            conn_path = dbusmock.get_object(nm.SETTINGS_OBJ).SettingsAddConnection(conn_conf)
+            print("hotspot added:", json.dumps(plain(conn_conf)), flush=True)
+            return (dbus.ObjectPath(conn_path), activate_connection(self, conn_path, dev, "/"))
+
         conn_path, active_path = original(self, conn_conf, dev, ap)
         conn_obj = dbusmock.get_object(conn_path)
         settings = conn_obj.settings
@@ -180,7 +253,7 @@ def load(mock, parameters):
                                         {"State": dbus.UInt32(ACTIVE_STATE_ACTIVATED)})
                 device.UpdateProperties(nm.DEVICE_IFACE, {"State": dbus.UInt32(DEVICE_STATE_ACTIVATED)})
             else:
-                nm.deactivate_connection(self, active_path)
+                deactivate_connection(self, active_path)
                 device.UpdateProperties(nm.DEVICE_IFACE, {"State": dbus.UInt32(DEVICE_STATE_DISCONNECTED)})
 
         # Secrets aren't sent to agents; only the settings that describe them.

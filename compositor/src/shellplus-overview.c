@@ -94,6 +94,7 @@ struct _ShellPlusOverview
   GSettings *shell_keybindings;  /* org.gnome.shell.keybindings, if installed */
 
   gboolean active;
+  gboolean blocked;  /* the screen is locked */
   gboolean releasing_focus;  /* a window was activated from the overview */
   /* While active: an invisible clone of every listed window's actor (see
    * keep_painting). */
@@ -521,6 +522,14 @@ handle_method_call (GDBusConnection       *connection,
   MetaWindow *window = NULL;
   guint64 id;
 
+  if (self->blocked && g_strcmp0 (method_name, "ListWindows") != 0 &&
+      g_strcmp0 (method_name, "SetOverviewActive") != 0)
+    {
+      g_dbus_method_invocation_return_error (invocation, G_DBUS_ERROR,
+                                             G_DBUS_ERROR_ACCESS_DENIED,
+                                             "The screen is locked");
+      return;
+    }
   if (g_strcmp0 (method_name, "ListWindows") == 0)
     {
       g_dbus_method_invocation_return_value (invocation, list_windows (self));
@@ -632,6 +641,8 @@ void
 shellplus_overview_request (ShellPlusOverview *self,
                             const char        *mode)
 {
+  if (self->blocked)
+    return;
   emit (self, "ShowOverview", g_variant_new ("(s)", mode));
 }
 
@@ -723,6 +734,13 @@ gboolean
 shellplus_overview_holds_focus (ShellPlusOverview *self)
 {
   return self->active && !self->releasing_focus;
+}
+
+void
+shellplus_overview_set_blocked (ShellPlusOverview *self,
+                                gboolean           blocked)
+{
+  self->blocked = blocked;
 }
 
 void

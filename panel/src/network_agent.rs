@@ -1,5 +1,7 @@
 //! NetworkManager secret agent: asks for Wi-Fi passwords (and basic 802.1X
 //! credentials) in a system dialog, like GNOME Shell's networkAgent.js.
+//! VPN passwords and WireGuard private keys get the same dialog; GNOME
+//! Shell runs VPN plugins' own auth dialogs instead, which isn't done here.
 //!
 //! The panel exports org.freedesktop.NetworkManager.SecretAgent on the
 //! system bus and registers it with NetworkManager's AgentManager (again
@@ -72,15 +74,40 @@ enum Kind {
     Wep { key_type: u32 },
     /// 802.1X with a password-based EAP method: `identity` + `password`.
     Eap,
+    /// A VPN plugin's secret (`vpn.secrets[key]`, usually "password").
+    Vpn { key: String },
+    /// WireGuard: `private-key`.
+    WireGuard,
 }
 
 impl Kind {
-    fn secret_key(&self) -> &'static str {
+    fn secret_key(&self) -> &str {
         match self {
             Kind::Psk => "psk",
             Kind::Wep { .. } => "wep-key0",
             Kind::Eap => "password",
+            Kind::Vpn { key } => key,
+            Kind::WireGuard => "private-key",
         }
+    }
+
+    /// The secrets to return for `setting_name`.
+    fn secrets(&self, secret: &str, identity: Option<&str>) -> HashMap<String, glib::Variant> {
+        let mut values: HashMap<String, glib::Variant> = HashMap::new();
+        match self {
+            // VPN plugins' secrets are an a{ss} of their own.
+            Kind::Vpn { key } => {
+                let secrets = HashMap::from([(key.clone(), secret.to_owned())]);
+                values.insert("secrets".into(), secrets.to_variant());
+            }
+            _ => {
+                values.insert(self.secret_key().into(), secret.to_variant());
+            }
+        }
+        if let Some(identity) = identity {
+            values.insert("identity".into(), identity.to_variant());
+        }
+        values
     }
 
     fn validate(&self, secret: &str) -> bool {
@@ -92,7 +119,13 @@ impl Kind {
             Kind::Wep { key_type: 2 } => (1..=64).contains(&len),
             // 40/104-bit keys: 5/13 ASCII characters or 10/26 hex digits.
             Kind::Wep { .. } => matches!(len, 5 | 13) || (matches!(len, 10 | 26) && hex(secret)),
-            Kind::Eap => len > 0,
+            Kind::Eap | Kind::Vpn { .. } => len > 0,
+            // A base64-encoded 32-byte key.
+            Kind::WireGuard => {
+                len == 44
+                    && secret.ends_with('=')
+                    && secret.chars().take(43).all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/')
+            }
         }
     }
 }
@@ -226,7 +259,8 @@ impl Agent {
             invocation.return_dbus_error(ERROR_NO_SECRETS, "No secrets stored and interaction isn't allowed");
             return;
         }
-        let request = match parse_request(&connection, &setting_name) {
+        let hints: Vec<String> = params.child_value(3).get().unwrap_or_default();
+        let request = match parse_request(&connection, &setting_name, &hints) {
             Ok(parsed) => parsed,
             Err((error, message)) => {
                 invocation.return_dbus_error(error, &message);
@@ -300,12 +334,24 @@ impl Agent {
         let Some(request) = self.queue.borrow_mut().pop_front() else { return };
 
         let dialog = SystemDialog::new(&self.app, "network-secrets");
-        dialog.set_heading("Authentication required");
-        let kind_of_network = if request.wireless { "wireless" } else { "wired" };
-        dialog.set_body(&format!(
-            "Passwords or encryption keys are required to access the {kind_of_network} network “{}”.",
-            request.network
-        ));
+        match request.kind {
+            Kind::Vpn { .. } | Kind::WireGuard => {
+                dialog.set_heading(if request.kind == Kind::WireGuard {
+                    "Authentication required"
+                } else {
+                    "VPN password"
+                });
+                dialog.set_body(&format!("A password is required to connect to “{}”.", request.network));
+            }
+            _ => {
+                dialog.set_heading("Authentication required");
+                let kind_of_network = if request.wireless { "wireless" } else { "wired" };
+                dialog.set_body(&format!(
+                    "Passwords or encryption keys are required to access the {kind_of_network} network “{}”.",
+                    request.network
+                ));
+            }
+        }
 
         let identity = (request.kind == Kind::Eap).then(|| {
             let entry = gtk::Entry::builder()
@@ -318,7 +364,11 @@ impl Agent {
         });
         let secret = gtk::PasswordEntry::builder()
             .name("network-secrets-entry")
-            .placeholder_text(if matches!(request.kind, Kind::Wep { .. }) { "Key" } else { "Password" })
+            .placeholder_text(match request.kind {
+                Kind::Wep { .. } => "Key",
+                Kind::WireGuard => "Private key",
+                _ => "Password",
+            })
             .show_peek_icon(true)
             .text(request.existing.as_str())
             .build();
@@ -367,11 +417,8 @@ impl Agent {
                 }
                 let (Some(this), Some(dialog)) = (this.upgrade(), dialog.upgrade()) else { return };
                 if let Some(request) = slot.take() {
-                    let mut values: HashMap<String, glib::Variant> = HashMap::new();
-                    values.insert(request.kind.secret_key().into(), secret.text().to_variant());
-                    if let Some(entry) = &identity {
-                        values.insert("identity".into(), entry.text().trim().to_variant());
-                    }
+                    let identity = identity.as_ref().map(|entry| entry.text().trim().to_owned());
+                    let values = request.kind.secrets(&secret.text(), identity.as_deref());
                     let mut secrets: HashMap<String, HashMap<String, glib::Variant>> = HashMap::new();
                     secrets.insert(request.setting_name.clone(), values);
                     request.invocation.return_value(Some(&(secrets,).to_variant()));
@@ -427,7 +474,11 @@ impl Agent {
 type Parsed = (Kind, String, bool, String, String);
 
 /// Works out what to ask for from the connection's settings.
-fn parse_request(connection: &glib::Variant, setting_name: &str) -> Result<Parsed, (&'static str, String)> {
+fn parse_request(
+    connection: &glib::Variant,
+    setting_name: &str,
+    hints: &[String],
+) -> Result<Parsed, (&'static str, String)> {
     // a{sa{sv}}: outer values aren't boxed, so look them up by hand.
     let setting = |name: &str| {
         connection
@@ -468,6 +519,26 @@ fn parse_request(connection: &glib::Variant, setting_name: &str) -> Result<Parse
             }
             Ok((Kind::Eap, network, wireless, eap.string("identity"), eap.string("password")))
         }
+        "vpn" => {
+            let vpn = setting("vpn").ok_or((ERROR_INVALID_CONNECTION, "No vpn setting".to_owned()))?;
+            // Hints name the secrets the plugin wants; "x-vpn-message:…"
+            // ones are messages for its own auth dialog.
+            let key = hints
+                .iter()
+                .find(|hint| !hint.starts_with("x-vpn-message:"))
+                .cloned()
+                .unwrap_or_else(|| "password".to_owned());
+            let existing = vpn
+                .value("secrets")
+                .and_then(|secrets| system::lookup(&secrets, &key))
+                .and_then(|value| value.str().map(str::to_owned))
+                .unwrap_or_default();
+            Ok((Kind::Vpn { key }, base.string("id"), false, String::new(), existing))
+        }
+        "wireguard" => {
+            let existing = setting("wireguard").map(|w| w.string("private-key")).unwrap_or_default();
+            Ok((Kind::WireGuard, base.string("id"), false, String::new(), existing))
+        }
         other => Err((ERROR_NO_SECRETS, format!("Can't ask for “{other}” secrets"))),
     }
 }
@@ -494,5 +565,13 @@ mod tests {
         assert!(!key.validate("012345678g"));
         assert!(!key.validate("abcdef"));
         assert!(Kind::Wep { key_type: 2 }.validate("any passphrase"));
+    }
+
+    #[test]
+    fn wireguard_validation() {
+        assert!(Kind::WireGuard.validate("yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk="));
+        assert!(!Kind::WireGuard.validate("yAnz5TF+lXXJte14tji3zlMNq+hd2rYUIgJBgB3fBmk"));
+        assert!(!Kind::WireGuard.validate("short="));
+        assert!(Kind::Vpn { key: "password".into() }.validate("x"));
     }
 }

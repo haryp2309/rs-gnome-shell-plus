@@ -1,0 +1,138 @@
+/* GNOME Shell's screenshot UI (data/theme/gnome-shell-sass/widgets/_screenshot.scss). */
+
+window.screenshot-ui {
+  background: none;
+  color: white;
+}
+
+.screenshot-ui-panel {
+  background-color: #2e2e32;
+  color: #ffffff;
+  border-radius: 36px;
+  padding: 18px;
+  box-shadow: 0 2px 6px 1px rgba(0, 0, 0, 0.4), inset 0 0 0 1px rgba(255, 255, 255, 0.06);
+  font-weight: bold;
+}
+
+.screenshot-ui-type-button {
+  min-width: 82px;
+  padding: 12px 18px;
+  border-radius: 18px;
+  background: none;
+  color: white;
+  box-shadow: none;
+}
+
+.screenshot-ui-type-button:hover {
+  background-color: rgba(255, 255, 255, 0.08);
+}
+
+.screenshot-ui-type-button:checked {
+  background-color: rgba(255, 255, 255, 0.18);
+}
+
+.screenshot-ui-type-button:disabled {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.screenshot-ui-show-pointer-button,
+.screenshot-ui-close-button {
+  min-width: 36px;
+  min-height: 36px;
+  padding: 0;
+  border-radius: 999px;
+  color: white;
+  box-shadow: none;
+}
+
+.screenshot-ui-show-pointer-button {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.screenshot-ui-show-pointer-button:hover {
+  background-color: rgba(255, 255, 255, 0.16);
+}
+
+.screenshot-ui-show-pointer-button:checked {
+  background-color: #eeeeee;
+  color: #2e2e32;
+}
+
+.screenshot-ui-close-button {
+  background-color: #3d3d41;
+  margin: 2px;
+  min-width: 32px;
+  min-height: 32px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45);
+}
+
+.screenshot-ui-close-button:hover {
+  background-color: #4a4a4f;
+}
+
+.screenshot-ui-capture-button {
+  min-width: 56px;
+  min-height: 56px;
+  padding: 4px;
+  border-radius: 999px;
+  border: 4px solid #ffffff;
+  background: none;
+  box-shadow: none;
+}
+
+.screenshot-ui-capture-button-circle {
+  min-width: 56px;
+  min-height: 56px;
+  border-radius: 999px;
+  background-color: #ffffff;
+  transition: background-color 150ms;
+}
+
+.screenshot-ui-capture-button:hover .screenshot-ui-capture-button-circle {
+  background-color: #dddddd;
+}
+
+.screenshot-ui-capture-button:active .screenshot-ui-capture-button-circle {
+  background-color: #bbbbbb;
+}
+
+.screenshot-ui-shot-cast-container {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  padding: 3px;
+}
+
+.screenshot-ui-shot-cast-button {
+  min-width: 40px;
+  min-height: 30px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: none;
+  color: white;
+  box-shadow: none;
+}
+
+.screenshot-ui-shot-cast-button:checked {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+.screenshot-ui-shot-cast-button:disabled {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.screenshot-ui-window {
+  padding: 3px;
+  border-radius: 12px;
+  border: 3px solid transparent;
+  background: none;
+  box-shadow: none;
+}
+
+.screenshot-ui-window:hover {
+  border-color: rgba(255, 255, 255, 0.4);
+}
+
+.screenshot-ui-window:checked {
+  border-color: #ffffff;
+  background-color: rgba(255, 255, 255, 0.15);
+}

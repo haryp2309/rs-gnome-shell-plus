@@ -15,6 +15,8 @@ typedef enum
   SHELLPLUS_ROLE_SYSTEM_DIALOG, /* modal prompts: cover the whole primary monitor */
   SHELLPLUS_ROLE_SWITCHER, /* Alt-Tab pop-up: centered */
   SHELLPLUS_ROLE_OVERVIEW, /* covers the primary monitor, under the top bar */
+  SHELLPLUS_ROLE_SCREENSHOT, /* screenshot UI: covers the whole primary monitor */
+  SHELLPLUS_ROLE_LOCK,     /* the lock screen: covers the primary monitor */
 } ShellPlusRole;
 
 #define SHELLPLUS_TYPE_PANEL_CONSTRAINT (shellplus_panel_constraint_get_type ())

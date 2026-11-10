@@ -59,6 +59,8 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
 
     case SHELLPLUS_ROLE_SYSTEM_DIALOG:
     case SHELLPLUS_ROLE_OVERVIEW:
+    case SHELLPLUS_ROLE_SCREENSHOT:
+    case SHELLPLUS_ROLE_LOCK:
       /* The panel draws the backdrop and lays out the contents itself. */
       *rect = monitor;
       break;

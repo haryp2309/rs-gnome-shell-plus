@@ -30,6 +30,9 @@ ShellPlusSwitcher *shellplus_switcher_new (MetaDisplay             *display,
 gboolean shellplus_switcher_filter_keybinding (ShellPlusSwitcher *self,
                                                MetaKeyBinding    *binding);
 
+/* Closes the switcher without switching (e.g. when the screen locks). */
+void shellplus_switcher_cancel (ShellPlusSwitcher *self);
+
 void shellplus_switcher_free (ShellPlusSwitcher *self);
 
 G_END_DECLS

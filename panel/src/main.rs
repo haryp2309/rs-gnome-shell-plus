@@ -4,6 +4,7 @@ mod clock;
 mod debug;
 mod ipc;
 mod keyboard;
+mod lock_screen;
 mod media;
 mod network_agent;
 mod notifications;
@@ -13,6 +14,7 @@ mod overview;
 mod panel;
 mod polkit_agent;
 mod quick_settings;
+mod screenshot;
 mod switcher;
 mod system;
 mod system_dialog;
@@ -38,6 +40,7 @@ fn main() -> glib::ExitCode {
         let notifications = notifications::Notifications::install(app);
         osd::install(app, &client);
         switcher::install(app, &client);
+        screenshot::install(app, &client);
         let overview = overview::install(app, &client);
         let on_activities: std::rc::Rc<dyn Fn()> = {
             let overview = overview.clone();
@@ -50,6 +53,10 @@ fn main() -> glib::ExitCode {
             move |active| top_bar.set_overview(active)
         ));
         top_bar.window.present();
+        lock_screen::install(app, &client, &notifications, {
+            let overview = overview.clone();
+            move || overview.close()
+        });
         network_agent::install(app);
         polkit_agent::install(app);
         debug::install();

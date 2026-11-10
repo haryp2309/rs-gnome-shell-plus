@@ -112,7 +112,25 @@ impl Notifications {
         self.items.borrow().iter().rev().filter(|n| !n.transient).cloned().collect()
     }
 
-    fn connect_changed(&self, f: impl Fn() + 'static) {
+    /// Notifications in the date menu, counted per application, newest
+    /// application first: (name, icon, count). For the lock screen, which
+    /// only shows counts, like GNOME Shell's without details.
+    pub fn summary(&self) -> Vec<(String, Option<gio::Icon>, usize)> {
+        let mut out: Vec<(String, Option<gio::Icon>, usize)> = Vec::new();
+        let mut keys: Vec<String> = Vec::new();
+        for n in self.listed() {
+            match keys.iter().position(|k| k == n.app.key()) {
+                Some(i) => out[i].2 += 1,
+                None => {
+                    keys.push(n.app.key().to_owned());
+                    out.push((n.app.name.clone(), n.app.icon.clone(), 1));
+                }
+            }
+        }
+        out
+    }
+
+    pub(crate) fn connect_changed(&self, f: impl Fn() + 'static) {
         self.listeners.borrow_mut().push(Box::new(f));
     }
 

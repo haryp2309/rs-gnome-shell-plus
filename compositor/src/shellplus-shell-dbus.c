@@ -3,13 +3,28 @@
 #include "shellplus-shell-dbus.h"
 
 #include <clutter/clutter.h>
+#include <meta/util.h>
 
 #define SHELL_DBUS_NAME  "org.gnome.Shell"
 #define SHELL_DBUS_PATH  "/org/gnome/Shell"
 #define SHELL_DBUS_IFACE "org.gnome.Shell"
 
-/* GNOME Shell's Shell.ActionMode.NORMAL */
-#define ACTION_MODE_NORMAL 1
+#define ACTION_MODE_NORMAL SHELLPLUS_ACTION_MODE_NORMAL
+
+typedef struct
+{
+  char *sender;
+  guint mode_flags;  /* Shell.ActionMode flags the grab works in */
+} Grab;
+
+static void
+grab_free (gpointer data)
+{
+  Grab *grab = data;
+
+  g_free (grab->sender);
+  g_free (grab);
+}
 
 static const char introspection_xml[] =
   "<node>"
@@ -55,8 +70,9 @@ struct _ShellPlusShellDBus
   guint owner_id;
   guint registration_id;
   gulong accelerator_activated_id;
+  guint action_mode;
 
-  /* action id -> owning bus name, and bus name -> name watch id, so grabs
+  /* action id -> Grab (owning bus name and mode flags), and bus name -> name watch id, so grabs
    * are released when the client that made them goes away. */
   GHashTable *grabs;
   GHashTable *watches;
@@ -69,12 +85,12 @@ on_grabber_vanished (GDBusConnection *connection,
 {
   ShellPlusShellDBus *self = user_data;
   GHashTableIter iter;
-  gpointer action, sender;
+  gpointer action, grab;
 
   g_hash_table_iter_init (&iter, self->grabs);
-  while (g_hash_table_iter_next (&iter, &action, &sender))
+  while (g_hash_table_iter_next (&iter, &action, &grab))
     {
-      if (g_strcmp0 (sender, name) == 0)
+      if (g_strcmp0 (((Grab *) grab)->sender, name) == 0)
         {
           meta_display_ungrab_accelerator (self->display, GPOINTER_TO_UINT (action));
           g_hash_table_iter_remove (&iter);
@@ -89,14 +105,19 @@ static guint
 grab_accelerator (ShellPlusShellDBus *self,
                   const char         *sender,
                   const char         *accelerator,
+                  guint               mode_flags,
                   guint               grab_flags)
 {
   guint action = meta_display_grab_accelerator (self->display, accelerator, grab_flags);
+  Grab *grab;
 
   if (action == 0)
     return 0;
 
-  g_hash_table_insert (self->grabs, GUINT_TO_POINTER (action), g_strdup (sender));
+  grab = g_new0 (Grab, 1);
+  grab->sender = g_strdup (sender);
+  grab->mode_flags = mode_flags;
+  g_hash_table_insert (self->grabs, GUINT_TO_POINTER (action), grab);
   if (!g_hash_table_contains (self->watches, sender))
     {
       guint watch = g_bus_watch_name_on_connection (self->connection, sender,
@@ -113,9 +134,9 @@ ungrab_accelerator (ShellPlusShellDBus *self,
                     const char         *sender,
                     guint               action)
 {
-  const char *owner = g_hash_table_lookup (self->grabs, GUINT_TO_POINTER (action));
+  Grab *grab = g_hash_table_lookup (self->grabs, GUINT_TO_POINTER (action));
 
-  if (g_strcmp0 (owner, sender) != 0)
+  if (!grab || g_strcmp0 (grab->sender, sender) != 0)
     return FALSE;
 
   g_hash_table_remove (self->grabs, GUINT_TO_POINTER (action));
@@ -129,7 +150,8 @@ on_accelerator_activated (MetaDisplay        *display,
                           guint               timestamp,
                           ShellPlusShellDBus *self)
 {
-  const char *sender = g_hash_table_lookup (self->grabs, GUINT_TO_POINTER (action));
+  Grab *grab = g_hash_table_lookup (self->grabs, GUINT_TO_POINTER (action));
+  const char *sender = grab ? grab->sender : NULL;
   const char *device_node = device ? clutter_input_device_get_device_node (device) : NULL;
   GVariantBuilder params;
 
@@ -138,7 +160,7 @@ on_accelerator_activated (MetaDisplay        *display,
 
   g_variant_builder_init (&params, G_VARIANT_TYPE_VARDICT);
   g_variant_builder_add (&params, "{sv}", "timestamp", g_variant_new_uint32 (timestamp));
-  g_variant_builder_add (&params, "{sv}", "action-mode", g_variant_new_uint32 (ACTION_MODE_NORMAL));
+  g_variant_builder_add (&params, "{sv}", "action-mode", g_variant_new_uint32 (self->action_mode));
   if (device_node)
     g_variant_builder_add (&params, "{sv}", "device-node", g_variant_new_string (device_node));
 
@@ -175,7 +197,8 @@ handle_method_call (GDBusConnection       *connection,
       g_variant_get (parameters, "(&suu)", &accelerator, &mode_flags, &grab_flags);
       g_dbus_method_invocation_return_value (
         invocation,
-        g_variant_new ("(u)", grab_accelerator (self, sender, accelerator, grab_flags)));
+        g_variant_new ("(u)", grab_accelerator (self, sender, accelerator,
+                                                         mode_flags, grab_flags)));
     }
   else if (g_strcmp0 (method_name, "GrabAccelerators") == 0)
     {
@@ -188,7 +211,8 @@ handle_method_call (GDBusConnection       *connection,
       g_variant_get (parameters, "(a(suu))", &iter);
       while (g_variant_iter_loop (iter, "(&suu)", &accelerator, &mode_flags, &grab_flags))
         g_variant_builder_add (&actions, "u",
-                               grab_accelerator (self, sender, accelerator, grab_flags));
+                               grab_accelerator (self, sender, accelerator,
+                                                 mode_flags, grab_flags));
       g_dbus_method_invocation_return_value (invocation, g_variant_new ("(au)", &actions));
     }
   else if (g_strcmp0 (method_name, "UngrabAccelerator") == 0)
@@ -281,7 +305,8 @@ shellplus_shell_dbus_new (MetaDisplay   *display,
 
   self->display = display;
   self->panel_dbus = panel_dbus;
-  self->grabs = g_hash_table_new_full (NULL, NULL, NULL, g_free);
+  self->action_mode = ACTION_MODE_NORMAL;
+  self->grabs = g_hash_table_new_full (NULL, NULL, NULL, grab_free);
   self->watches = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, remove_watch);
   self->node_info = g_dbus_node_info_new_for_xml (introspection_xml, NULL);
   self->accelerator_activated_id =
@@ -306,4 +331,32 @@ shellplus_shell_dbus_free (ShellPlusShellDBus *self)
   g_clear_object (&self->connection);
   g_dbus_node_info_unref (self->node_info);
   g_free (self);
+}
+
+void
+shellplus_shell_dbus_set_action_mode (ShellPlusShellDBus *self,
+                                      guint               action_mode)
+{
+  self->action_mode = action_mode;
+}
+
+gboolean
+shellplus_shell_dbus_binding_allowed (ShellPlusShellDBus *self,
+                                      const char         *binding_name,
+                                      guint               action_mode)
+{
+  GHashTableIter iter;
+  gpointer action, grab;
+
+  /* Mutter names the bindings of grabbed accelerators after the action. */
+  g_hash_table_iter_init (&iter, self->grabs);
+  while (g_hash_table_iter_next (&iter, &action, &grab))
+    {
+      g_autofree char *name =
+        meta_external_binding_name_for_action (GPOINTER_TO_UINT (action));
+
+      if (g_strcmp0 (name, binding_name) == 0)
+        return (((Grab *) grab)->mode_flags & action_mode) != 0;
+    }
+  return FALSE;
 }

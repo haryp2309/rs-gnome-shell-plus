@@ -55,15 +55,19 @@ and costs nothing per frame.
 | `compositor/src/shellplus-input-sources.c` | Keyboard layouts and Super+Space |
 | `compositor/src/shellplus-switcher.c` | Alt-Tab key handling (the pop-up is `panel/src/switcher.rs`) |
 | `compositor/src/shellplus-animations.c` | Window open/close/minimize and workspace-switch animations |
+| `compositor/src/shellplus-screenshot.c` | Screen/window captures, `org.gnome.Shell.Screenshot` (with its caller allowlist) and the private interface the screenshot UI uses |
+| `compositor/src/shellplus-lock.c` | Lock state and screen shield: `org.gnome.ScreenSaver`, logind Lock/PrepareForSleep, idle locking, unlock from the panel only |
 | `compositor/src/shellplus-overview.c` | The overview's compositor half: window list, window previews over shared memory, window actions, Super key |
 | `panel/src/panel.rs` | Bar window, translucent/solid switching, hot corner |
 | `panel/src/overview/` | Activities overview: window picker, workspaces and thumbnails, search entry, animations |
+| `panel/src/screenshot/` | Screenshot UI (Print): selection/screen/window modes, saving, clipboard, notification |
 | `panel/src/wallpaper.rs` | Blurred wallpaper strip |
 | `panel/src/quick_settings/` | Status icons and the quick settings menu |
 | `panel/src/notifications/` | Notification servers, banners, the date menu list |
 | `panel/src/osd.rs` | Volume/brightness pop-up |
 | `panel/src/system_dialog.rs` | Modal system dialog (dimmed backdrop, card, buttons) |
-| `panel/src/network_agent.rs` | NetworkManager secret agent (Wi-Fi password prompt) |
+| `panel/src/network_agent.rs` | NetworkManager secret agent (Wi-Fi, VPN and WireGuard password prompts) |
+| `panel/src/lock_screen/` | Lock screen UI (curtain, unlock prompt) and password checking (GDM reauthentication channel, else PAM) |
 | `panel/src/polkit_agent.rs` | polkit authentication agent (administrator password prompt) |
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
@@ -86,8 +90,8 @@ and costs nothing per frame.
 | `org.gnome.settings-daemon.plugins.color` | `night-light-enabled` |
 | `org.gnome.mutter` | `dynamic-workspaces`, plus everything Mutter reads itself (`org.gnome.desktop.wm.*` keybindings and preferences, etc.) |
 
-The quick settings menu talks to NetworkManager (Wi-Fi toggle and network
-icon), UPower (battery), power-profiles-daemon (Power Saver), logind
+The quick settings menu talks to NetworkManager (Wi-Fi, Wired, VPN and
+Hotspot toggles, network and VPN icons), UPower (battery), power-profiles-daemon (Power Saver), logind
 (suspend, restart, power off) and PipeWire through `wpctl` (volume). Each
 part hides itself if its service is missing.
 
@@ -134,7 +138,8 @@ make shots SCENARIO=quick_settings
 screenshots and logs to `dev/out/<scenario>/`. The session has:
 
 - a 1280×800 virtual monitor, captured through Mutter's ScreenCast API;
-- a fake system bus with mocked NetworkManager (Wi-Fi networks, Ethernet),
+- a fake system bus with mocked NetworkManager (Wi-Fi networks that can
+  also be a hotspot, Ethernet, an OpenVPN and a WireGuard profile),
   BlueZ (paired devices), UPower (battery), power-profiles-daemon,
   gsd-rfkill and polkitd (`dev/mocks.py`, using python-dbusmock), plus a
   fake polkit helper that accepts the password `hunter2`
@@ -191,15 +196,16 @@ Done:
 
 - top bar: workspace indicator, clock + calendar menu, translucent/solid modes
 - quick settings: volume and microphone (with device menus), brightness,
-  Wi-Fi (network list), Wired, Bluetooth (devices), Power Mode, Night Light,
+  Wi-Fi (network list), Wired, VPN (VPN and WireGuard profiles, panel
+  icon), Hotspot (creates a WPA2 profile like GNOME Settings), Bluetooth (devices), Power Mode, Night Light,
   Dark Style, Airplane Mode, battery, power menu with confirmation dialogs
 - notifications: `org.freedesktop.Notifications` and `org.gtk.Notifications`
   servers, banners (actions, critical, Do Not Disturb, per-app settings),
   grouped list in the date menu, unread indicator
-- Wi-Fi password prompts: a NetworkManager secret agent with GNOME's modal
+- Wi-Fi and VPN password prompts: a NetworkManager secret agent with GNOME's modal
   "Authentication required" dialog (WPA/WPA3 personal, WEP, 802.1X
-  username/password); secured networks without a profile connect from the
-  Wi-Fi menu
+  username/password, VPN passwords, WireGuard private keys); secured
+  networks without a profile connect from the Wi-Fi menu
 - polkit authentication agent: GNOME's "Authentication Required" dialog
   with the user's avatar and real name (AccountsService, else passwd), a
   user picker when several identities may authenticate, and retries; runs
@@ -228,6 +234,27 @@ Done:
   to move it), type-to-search, the zoom in/out animation from and to the
   real window positions. The panel draws it; the compositor streams the
   window previews (`org.gnome.ShellPlus.Overview`)
+- screenshots: GNOME's screenshot UI (Print, or the quick settings button)
+  over a frozen screen with Selection (handles, remembered), Screen and
+  Window modes and the show-pointer toggle; saves to
+  `~/Pictures/Screenshots`, copies to the clipboard and posts "Screenshot
+  captured" with Show in Files. Shift+Print / Alt+Print take the screen /
+  focused window directly. `org.gnome.Shell.Screenshot` (Screenshot,
+  ScreenshotWindow, ScreenshotArea, PickColor, FlashArea, SelectArea,
+  InteractiveScreenshot) serves xdg-desktop-portal-gnome and
+  gnome-screenshot; only those (and gsd-media-keys), identified by their
+  root-owned executable under `/usr`, may call it
+  (`SHELLPLUS_SCREENSHOT_ALLOW_ALL=1` turns that off for tests). The Print
+  keys need GNOME Shell's `org.gnome.shell.keybindings` schema
+- lock screen: `org.gnome.ScreenSaver` (Super+L through
+  gnome-settings-daemon, the quick settings Lock button), `loginctl
+  lock-session`, locking before suspend and when idle
+  (`org.gnome.desktop.screensaver`, `org.gnome.desktop.session idle-delay`);
+  GNOME's curtain (clock, date, notification counts) and unlock prompt over
+  the blurred wallpaper. The password goes to GDM's reauthentication
+  channel when GDM runs, else to PAM (`/etc/pam.d/gnome-shell-plus`,
+  installed by `make install`). The compositor keeps the screen black if
+  the panel isn't there and only takes an unlock from the panel it started
 - dash, app grid and app search widgets (`panel/src/app_grid/`):
   favourites with drag-and-drop reordering, running apps with dots, the app
   menu (New Window, favourites, App Details), paginated grid with page dots
@@ -243,10 +270,12 @@ Missing compared to GNOME Shell:
 - window thumbnails in the switcher, maximize animations
 - calendar: no world clocks, weather or week numbers; events come only
   from GNOME Shell's calendar server
-- lock screen, keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
+- keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
 - IBus input methods (only XKB layouts are used), per-window layouts, the
-  Super+Space switcher pop-up (a tap switches straight away), screenshot UI
-- VPN and hotspot menus, multiple Wi-Fi/Bluetooth adapters
+  Super+Space switcher pop-up (a tap switches straight away)
+- screen recording; the screenshot UI only covers the primary monitor
+- multiple Wi-Fi/Bluetooth adapters; VPN plugins' own auth dialogs (VPN
+  secrets get a plain password prompt), modem/mobile broadband
 - XML wallpaper slideshows (the first image is used)
 - panel only on the primary monitor (as in GNOME Shell)
 

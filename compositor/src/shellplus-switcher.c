@@ -541,6 +541,13 @@ shellplus_switcher_filter_keybinding (ShellPlusSwitcher *self,
   return TRUE;
 }
 
+void
+shellplus_switcher_cancel (ShellPlusSwitcher *self)
+{
+  if (self->active)
+    cancel (self);
+}
+
 ShellPlusSwitcher *
 shellplus_switcher_new (MetaDisplay             *display,
                         ShellPlusDBus           *dbus,

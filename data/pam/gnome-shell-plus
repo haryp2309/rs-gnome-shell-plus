@@ -1,0 +1,10 @@
+#%PAM-1.0
+# GNOME Shell Plus's lock screen checks the user's password with this
+# service when GDM isn't running (with GDM it uses GDM's gdm-password
+# through the reauthentication channel, like GNOME Shell). Installed to
+# /etc/pam.d by `make install`.
+#
+# Only auth and account are used. On distributions without system-auth
+# (Debian, Ubuntu), use "@include common-auth" and "@include common-account".
+auth       include      system-auth
+account    include      system-auth

@@ -238,6 +238,8 @@ check(wait_for(ready), "ready for another try")
 check(text("polkit-password") == "", "entry cleared for the retry")
 time.sleep(0.3)
 s.shot("02-wrong-password")
+# The helper prints its result before it writes its log.
+wait_for(lambda: len(helper_runs()) >= 1)
 runs = helper_runs()
 check(len(runs) == 1 and runs[0]["mode"] == "setuid" and runs[0]["argv"] == ["root"],
       f"helper run with the user name as its only argument ({runs[:1]})")
@@ -273,8 +275,11 @@ print("reply:", result)
 check(result and result.get("error") == ERRORS + "Cancelled", f"Escape returns Cancelled ({result})")
 check(wait_for(lambda: not dialog_shown()), "dialog closes on Escape")
 second_cookie = authority.GetCookie(dbus.UInt32(second))
-check(wait_for(lambda: any(r["cookie"] == second_cookie and r["result"] in ("terminated", "eof")
-                           for r in helper_runs())), "helper stopped on Escape")
+# Under load SIGTERM can land before the fake helper (Python) has set up its
+# handler and log, so check the process itself is gone.
+check(wait_for(lambda: subprocess.run(["pgrep", "-f", "fake_polkit_helper"],
+                                      capture_output=True).returncode != 0),
+      "helper stopped on Escape")
 
 # --- CancelAuthentication ---------------------------------------------------
 
@@ -298,7 +303,7 @@ type_text("hunter2")
 keycodes(KEY_ENTER)
 result = reply(picked)
 check(result == {"ok": True, "authorized": True}, f"alice authenticated ({result})")
-check(helper_runs()[-1]["user"] == "alice", f"helper ran for alice ({helper_runs()[-1]['user']})")
+check(wait_for(lambda: helper_runs()[-1]["user"] == "alice"), f"helper ran for alice ({helper_runs()[-1]['user']})")
 responses = json.loads(authority.GetResponses())
 check(responses[-1]["identity"] == ["unix-user", {"uid": ALICE}], f"response for alice ({responses[-1]})")
 
@@ -364,6 +369,7 @@ check(wait_for(dialog_shown) and wait_for(ready), "socket request ready")
 type_text("hunter2")
 keycodes(KEY_ENTER)
 result = reply(via_socket)
+wait_for(lambda: helper_runs()[-1]["mode"] == "socket")
 run = helper_runs()[-1]
 check(result == {"ok": True, "authorized": True}, f"authenticated through the helper socket ({result})")
 check(run["mode"] == "socket" and run["user"] == "root" and run["cookie"] == authority.GetCookie(dbus.UInt32(via_socket)),

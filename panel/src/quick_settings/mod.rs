@@ -1,15 +1,17 @@
 //! System status icons and the quick settings menu.
 //!
 //! Each section talks to the same services GNOME Shell does
-//! (NetworkManager, BlueZ, PulseAudio/PipeWire, UPower,
+//! (NetworkManager for network, VPN and hotspot, BlueZ, PulseAudio/PipeWire, UPower,
 //! power-profiles-daemon, gsd-rfkill, logind, GSettings) and hides itself
 //! when its service isn't available.
 
 mod bluetooth;
+mod hotspot;
 mod network;
 mod power;
 mod sound;
 mod toggles;
+mod vpn;
 pub mod widgets;
 
 use crate::ipc::ShellClient;
@@ -23,6 +25,7 @@ use widgets::{status_icon, MenuHost, ToggleGrid};
 pub struct Indicators {
     pub microphone: gtk::Image,
     pub network: gtk::Image,
+    pub vpn: gtk::Image,
     pub bluetooth: gtk::Image,
     pub airplane: gtk::Image,
     pub volume: gtk::Image,
@@ -35,6 +38,7 @@ impl Indicators {
         let this = Self {
             microphone: status_icon(),
             network: status_icon(),
+            vpn: status_icon(),
             bluetooth: status_icon(),
             airplane: status_icon(),
             volume: status_icon(),
@@ -42,7 +46,17 @@ impl Indicators {
             battery_percentage: gtk::Label::builder().visible(false).build(),
         };
         this.microphone.add_css_class("privacy-indicator");
-        for icon in [&this.microphone, &this.network, &this.bluetooth, &this.airplane, &this.volume, &this.battery] {
+        this.vpn.set_widget_name("vpn-indicator");
+        let icons = [
+            &this.microphone,
+            &this.network,
+            &this.vpn,
+            &this.bluetooth,
+            &this.airplane,
+            &this.volume,
+            &this.battery,
+        ];
+        for icon in icons {
             container.append(icon);
         }
         container.append(&this.battery_percentage);
@@ -102,6 +116,8 @@ pub fn build(client: Rc<ShellClient>) -> gtk::MenuButton {
     // Toggle grid, in GNOME's order.
     let grid = ToggleGrid::new();
     let mut toggles = network::build(&ctx);
+    toggles.extend(vpn::build(&ctx));
+    toggles.extend(hotspot::build(&ctx));
     toggles.extend(bluetooth::build(&ctx));
     toggles.extend(power::profiles_toggle(&ctx));
     toggles.extend(toggles::build(&ctx));

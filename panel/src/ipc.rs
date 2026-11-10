@@ -24,6 +24,8 @@ pub struct ShellState {
     pub input_sources: Vec<InputSource>,
     /// Index into `input_sources` of the active keyboard layout.
     pub input_source: i32,
+    /// The compositor locked the screen; the lock screen must be shown.
+    pub locked: bool,
 }
 
 /// A keyboard layout from org.gnome.desktop.input-sources.
@@ -48,6 +50,7 @@ impl Default for ShellState {
             brightness: None,
             input_sources: Vec::new(),
             input_source: 0,
+            locked: false,
         }
     }
 }
@@ -91,6 +94,9 @@ impl ShellState {
         }
         if let Ok(Some(index)) = dict.lookup::<i32>("input-source") {
             state.input_source = index;
+        }
+        if let Ok(Some(locked)) = dict.lookup::<bool>("locked") {
+            state.locked = locked;
         }
         state
     }

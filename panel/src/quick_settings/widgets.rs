@@ -81,6 +81,7 @@ impl QuickToggle {
                 .build(),
         );
         let subtitle = gtk::Label::builder()
+            .name(format!("{name}-subtitle"))
             .xalign(0.0)
             .ellipsize(pango::EllipsizeMode::End)
             .visible(false)

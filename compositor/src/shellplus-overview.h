@@ -27,6 +27,11 @@ void shellplus_overview_request (ShellPlusOverview *self,
  * across workspace switches), until the panel activates a window. */
 gboolean shellplus_overview_holds_focus (ShellPlusOverview *self);
 
+/* While blocked (the screen is locked) show requests are dropped and the
+ * window previews and window actions are refused. */
+void shellplus_overview_set_blocked (ShellPlusOverview *self,
+                                     gboolean           blocked);
+
 void shellplus_overview_free (ShellPlusOverview *self);
 
 G_END_DECLS

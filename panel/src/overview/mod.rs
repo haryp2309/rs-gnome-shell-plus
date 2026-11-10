@@ -19,8 +19,8 @@
 //! - `ws_offset`: the (fractional) workspace in the middle.
 //! - `relayout`: windows moving to new slots after the list changed.
 
-mod client;
-mod layout;
+pub(crate) mod client;
+pub(crate) mod layout;
 mod preview;
 mod stage;
 
@@ -525,6 +525,11 @@ impl Overview {
     /// Toggles the window picker (Activities button, hot corner).
     pub fn toggle(self: &Rc<Self>) {
         self.request("toggle");
+    }
+
+    /// Closes the overview if it's open (e.g. when the screen locks).
+    pub fn close(self: &Rc<Self>) {
+        self.hide(None);
     }
 
     /// `f(true)` when the overview starts opening, `f(false)` when it

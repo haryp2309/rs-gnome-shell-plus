@@ -1,6 +1,8 @@
 PREFIX   ?= /usr/local
 DESTDIR  ?=
 BUILDDIR ?= build
+# The lock screen's PAM service (used when GDM isn't running).
+PAMDIR   ?= /etc/pam.d
 
 DEV_IMAGE   := gnome-shell-plus-dev
 DOCKER_RUN  := docker run --rm -v "$(CURDIR)":/src \
@@ -26,12 +28,14 @@ install:
 	install -Dm755 $(PANEL_BIN) $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-panel
 	install -Dm755 data/gnome-shell-plus-session $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-session
 	install -Dm644 data/gnome-shell-plus.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop
+	install -Dm644 data/pam/gnome-shell-plus $(DESTDIR)$(PAMDIR)/gnome-shell-plus
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus \
 	      $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-panel \
 	      $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-session \
-	      $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop
+	      $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop \
+	      $(DESTDIR)$(PAMDIR)/gnome-shell-plus
 
 clean:
 	rm -rf $(BUILDDIR)

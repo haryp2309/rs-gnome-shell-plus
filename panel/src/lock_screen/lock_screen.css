@@ -1,0 +1,95 @@
+/* The lock screen, after GNOME Shell's .unlock-dialog / .screen-shield. */
+
+window.lock-screen {
+  background-color: black;
+  color: white;
+}
+
+/* GNOME darkens the blurred wallpaper to 65 % brightness. */
+window.lock-screen .lock-dim {
+  background-color: rgba(0, 0, 0, 0.35);
+}
+
+window.lock-screen .lock-curtain {
+  padding: 0 24px 48px 24px;
+}
+
+window.lock-screen .lock-clock {
+  margin-top: 120px;
+}
+
+window.lock-screen .lock-clock-time {
+  font-size: 96px;
+  font-weight: 300;
+  font-feature-settings: "tnum";
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+}
+
+window.lock-screen .lock-clock-date {
+  font-size: 24px;
+  font-weight: 500;
+  text-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
+}
+
+window.lock-screen .lock-notifications {
+  min-width: 320px;
+}
+
+window.lock-screen .lock-notification {
+  background-color: rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 10px 16px;
+}
+
+window.lock-screen .lock-notification-count {
+  background-color: rgba(255, 255, 255, 0.2);
+  border-radius: 99px;
+  min-width: 24px;
+  padding: 2px 8px;
+  font-weight: bold;
+  font-size: smaller;
+}
+
+window.lock-screen .lock-hint {
+  font-size: 15px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.85);
+  margin-bottom: 24px;
+}
+
+window.lock-screen .lock-user-name {
+  font-size: 22px;
+  font-weight: 800;
+  margin-bottom: 8px;
+}
+
+window.lock-screen .lock-entry-row entry {
+  min-height: 42px;
+  padding-left: 16px;
+  padding-right: 12px;
+  border-radius: 99px;
+  background-color: rgba(255, 255, 255, 0.12);
+  color: white;
+  caret-color: white;
+}
+
+window.lock-screen .lock-entry-row entry:focus-within {
+  outline-color: rgba(255, 255, 255, 0.4);
+}
+
+window.lock-screen .lock-entry-row button.lock-unlock {
+  min-height: 42px;
+  padding-left: 18px;
+  padding-right: 18px;
+  border-radius: 99px;
+  font-weight: bold;
+}
+
+window.lock-screen .lock-message {
+  min-height: 20px;
+  font-size: 14px;
+}
+
+window.lock-screen .lock-message.error {
+  color: #ff938c;
+}

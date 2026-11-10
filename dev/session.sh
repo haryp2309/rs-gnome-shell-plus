@@ -69,6 +69,13 @@ if [ "$SCENARIO" = animations ]; then
   export SHELLPLUS_SLOW_ANIMATIONS=${SHELLPLUS_SLOW_ANIMATIONS:-10}
 fi
 export SHELLPLUS_SLOW_ANIMATIONS=${SHELLPLUS_SLOW_ANIMATIONS:-}
+# SHELLPLUS_SCREENSHOT_ALLOW_ALL=1 lets any D-Bus client use
+# org.gnome.Shell.Screenshot (normally only the portal, gnome-screenshot and
+# the media keys daemon may); the screenshot scenario needs it.
+if [ "$SCENARIO" = screenshot ]; then
+  export SHELLPLUS_SCREENSHOT_ALLOW_ALL=${SHELLPLUS_SCREENSHOT_ALLOW_ALL:-1}
+fi
+export SHELLPLUS_SCREENSHOT_ALLOW_ALL=${SHELLPLUS_SCREENSHOT_ALLOW_ALL:-}
 "$BUILD/gnome-shell-plus" --wayland --headless --no-x11 \
   --wayland-display "$WAYLAND_DISPLAY" --virtual-monitor 1280x800 \
   >"$OUT/compositor.log" 2>&1 &

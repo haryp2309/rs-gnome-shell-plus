@@ -1,7 +1,8 @@
 """Fake system services for the headless test session, using python-dbusmock.
 
 Gives the panel something realistic to show: a Wi-Fi card with a few access
-points (one connected), an unplugged Ethernet port, NetworkManager's secret
+points (one connected) that can also be a hotspot, an unplugged Ethernet
+port, an OpenVPN and a WireGuard profile, NetworkManager's secret
 agent manager (mock_networkmanager.py), a Bluetooth adapter with paired
 devices, a discharging battery, power profiles, airplane mode and polkitd's
 Authority with authentication agent registration (mock_polkit.py).
@@ -9,6 +10,7 @@ Authority with authentication agent registration (mock_polkit.py).
 Runs until killed; prints "mocks ready" once everything is populated.
 """
 import os
+import subprocess
 import time
 
 import dbus
@@ -22,7 +24,10 @@ PSK = 0x100  # NM_802_11_AP_SEC_KEY_MGMT_PSK
 
 
 def spawn(template, bus=BusType.SYSTEM, parameters=None):
-    return SpawnedMock.spawn_with_template(template, parameters or {}, bustype=bus)
+    # dbusmock logs every method call to stdout; nobody reads a pipe, and a
+    # full one blocks the mock, so drop it. Errors still reach mocks.log.
+    return SpawnedMock.spawn_with_template(template, parameters or {}, bustype=bus,
+                                           stdout=subprocess.DEVNULL, stderr=None)
 
 
 def setup_network():
@@ -50,6 +55,29 @@ def setup_network():
     wifi_obj.UpdateProperties(NM + ".Device.Wireless",
                               {"AccessPoints": dbus.Array(aps, signature="o")},
                               dbus_interface=dbusmock.MOCK_IFACE)
+
+    # VPN profiles (WireGuard used most recently). The Wi-Fi device's
+    # WirelessCapabilities (0xff) already include AP mode, for the hotspot.
+    settings = dbus.Interface(dbus.SystemBus().get_object(NM, NM_PATH + "/Settings"), NM + ".Settings")
+    for conn_id, conn_type, uuid, timestamp, extra in [
+        ("Work VPN", "vpn", "5e1f0000-0000-4000-8000-000000000001", 1767000000, {
+            "vpn": dbus.Dictionary({
+                "service-type": "org.freedesktop.NetworkManager.openvpn",
+                "data": dbus.Dictionary({"remote": "vpn.example.com", "connection-type": "password",
+                                         "username": "alice"}, signature="ss"),
+            }, signature="sv"),
+        }),
+        ("Home WireGuard", "wireguard", "5e1f0000-0000-4000-8000-000000000002", 1767100000, {
+            "wireguard": dbus.Dictionary({"listen-port": dbus.UInt32(51820)}, signature="sv"),
+        }),
+    ]:
+        settings.AddConnection(dbus.Dictionary({
+            "connection": dbus.Dictionary({
+                "id": conn_id, "type": conn_type, "uuid": uuid,
+                "timestamp": dbus.UInt64(timestamp), "autoconnect": dbus.Boolean(False),
+            }, signature="sv"),
+            **extra,
+        }, signature="sa{sv}"))
 
     # The template doesn't define PrimaryConnectionType; add it.
     dbus.SystemBus().get_object(NM, NM_PATH).AddProperty(
