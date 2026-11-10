@@ -15,6 +15,7 @@ deps = [
   dependency('gsettings-desktop-schemas'),
   dependency('cairo'),
   dependency('xkbregistry'),
+  dependency('ibus-1.0'),
 ]
 
 add_project_arguments(
@@ -30,6 +31,7 @@ executable('gnome-shell-plus',
   'src/shellplus-animations.c',
   'src/shellplus-background.c',
   'src/shellplus-dbus.c',
+  'src/shellplus-input-method.c',
   'src/shellplus-input-sources.c',
   'src/shellplus-lock.c',
   'src/shellplus-overview.c',

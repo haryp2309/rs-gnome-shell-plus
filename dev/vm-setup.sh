@@ -15,6 +15,7 @@ cd "$(dirname "$0")/.."
 
 sudo dnf install -y gcc meson ninja-build cargo \
   mutter-devel gtk4-devel libadwaita-devel gsettings-desktop-schemas-devel \
+  ibus-devel pulseaudio-libs-devel ibus ibus-libpinyin \
   mutter-devkit
 
 make

@@ -63,20 +63,34 @@ thread_local! {
 /// Posts "Screenshot captured" through org.freedesktop.Notifications
 /// (served by the panel itself), with the image as its icon.
 pub fn notify(path: &Path) {
+    post(
+        path,
+        "camera-photo-symbolic",
+        "Screenshot captured",
+        "You can paste the image from the clipboard.",
+        true,
+    );
+}
+
+/// Posts a notification about `path` with GNOME's "Show in Files" action
+/// (clicking it opens the file); `image` makes the file its icon.
+pub fn post(path: &Path, icon: &str, summary: &str, body: &str, image: bool) {
     let Ok(conn) = gio::bus_get_sync(gio::BusType::Session, gio::Cancellable::NONE) else {
         return;
     };
     subscribe(&conn);
 
     let hints = glib::VariantDict::new(None);
-    hints.insert("image-path", path.to_string_lossy().as_ref());
+    if image {
+        hints.insert("image-path", path.to_string_lossy().as_ref());
+    }
     let actions = ["default", "", "show-in-files", "Show in Files"];
     let args = glib::Variant::tuple_from_iter([
         "Screenshot".to_variant(),
         0u32.to_variant(),
-        "camera-photo-symbolic".to_variant(),
-        "Screenshot captured".to_variant(),
-        "You can paste the image from the clipboard.".to_variant(),
+        icon.to_variant(),
+        summary.to_variant(),
+        body.to_variant(),
         actions[..].to_variant(),
         hints.end(),
         (-1i32).to_variant(),

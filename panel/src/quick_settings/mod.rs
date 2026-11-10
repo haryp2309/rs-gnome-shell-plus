@@ -31,6 +31,7 @@ pub struct Indicators {
     pub volume: gtk::Image,
     pub battery: gtk::Image,
     pub battery_percentage: gtk::Label,
+    container: gtk::Box,
 }
 
 impl Indicators {
@@ -44,9 +45,17 @@ impl Indicators {
             volume: status_icon(),
             battery: status_icon(),
             battery_percentage: gtk::Label::builder().visible(false).build(),
+            container: container.clone(),
         };
         this.microphone.add_css_class("privacy-indicator");
+        this.microphone.set_widget_name("microphone-indicator");
+        this.network.set_widget_name("network-indicator");
         this.vpn.set_widget_name("vpn-indicator");
+        this.bluetooth.set_widget_name("bluetooth-indicator");
+        this.airplane.set_widget_name("airplane-indicator");
+        this.volume.set_widget_name("volume-indicator");
+        this.battery.set_widget_name("battery-indicator");
+        this.battery_percentage.set_widget_name("battery-percentage");
         let icons = [
             &this.microphone,
             &this.network,
@@ -62,17 +71,52 @@ impl Indicators {
         container.append(&this.battery_percentage);
         this
     }
+
+    /// A live copy of the status icons (the lock screen's bar): each copy
+    /// follows its original's icon, text and visibility, and is named
+    /// "lock-" + the original's name.
+    pub fn mirror(&self) -> gtk::Box {
+        let mirror = gtk::Box::builder().spacing(8).css_classes(["status-icons"]).build();
+        let mut child = self.container.first_child();
+        while let Some(original) = child {
+            if let Some(copy) = mirror_widget(&original) {
+                mirror.append(&copy);
+            }
+            child = original.next_sibling();
+        }
+        mirror
+    }
+}
+
+fn mirror_widget(original: &gtk::Widget) -> Option<gtk::Widget> {
+    let (copy, content): (gtk::Widget, &str) = if original.is::<gtk::Image>() {
+        (gtk::Image::new().upcast(), "icon-name")
+    } else if original.is::<gtk::Label>() {
+        (gtk::Label::new(None).upcast(), "label")
+    } else {
+        return None;
+    };
+    for property in [content, "visible"] {
+        original.bind_property(property, &copy, property).sync_create().build();
+    }
+    copy.set_css_classes(&original.css_classes().iter().map(|c| c.as_str()).collect::<Vec<_>>());
+    let name = original.widget_name();
+    if !name.starts_with("Gtk") {
+        copy.set_widget_name(&format!("lock-{name}"));
+    }
+    Some(copy)
 }
 
 /// What every section gets to build itself.
 pub struct Ctx {
     pub client: Rc<ShellClient>,
     pub host: Rc<MenuHost>,
-    pub indicators: Indicators,
+    pub indicators: Rc<Indicators>,
     pub popover: gtk::Popover,
 }
 
-pub fn build(client: Rc<ShellClient>) -> gtk::MenuButton {
+/// The system menu button, and its status icons for others to mirror.
+pub fn build(client: Rc<ShellClient>) -> (gtk::MenuButton, Rc<Indicators>) {
     let icons = gtk::Box::builder().spacing(8).css_classes(["status-icons"]).build();
     let content = gtk::Box::builder()
         .orientation(gtk::Orientation::Vertical)
@@ -91,7 +135,7 @@ pub fn build(client: Rc<ShellClient>) -> gtk::MenuButton {
     let ctx = Rc::new(Ctx {
         client,
         host: Rc::new(MenuHost::default()),
-        indicators: Indicators::new(&icons),
+        indicators: Rc::new(Indicators::new(&icons)),
         popover: popover.clone(),
     });
     popover.connect_closed(glib::clone!(
@@ -131,5 +175,5 @@ pub fn build(client: Rc<ShellClient>) -> gtk::MenuButton {
         let _ = &grid;
     });
 
-    button
+    (button, ctx.indicators.clone())
 }

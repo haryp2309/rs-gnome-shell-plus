@@ -136,3 +136,16 @@ window.screenshot-ui {
   border-color: #ffffff;
   background-color: rgba(255, 255, 255, 0.15);
 }
+
+/* Video mode: the capture button turns red ($screenshot_ui_button_red). */
+.screenshot-ui-capture-button.cast .screenshot-ui-capture-button-circle {
+  background-color: #e01b24;
+}
+
+.screenshot-ui-capture-button.cast:hover .screenshot-ui-capture-button-circle {
+  background-color: #e63e46;
+}
+
+.screenshot-ui-capture-button.cast:active .screenshot-ui-capture-button-circle {
+  background-color: #c01c28;
+}

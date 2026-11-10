@@ -17,6 +17,7 @@ typedef enum
   SHELLPLUS_ROLE_OVERVIEW, /* covers the primary monitor, under the top bar */
   SHELLPLUS_ROLE_SCREENSHOT, /* screenshot UI: covers the whole primary monitor */
   SHELLPLUS_ROLE_LOCK,     /* the lock screen: covers the primary monitor */
+  SHELLPLUS_ROLE_IM_CANDIDATES, /* input method pop-up: below the text cursor */
 } ShellPlusRole;
 
 #define SHELLPLUS_TYPE_PANEL_CONSTRAINT (shellplus_panel_constraint_get_type ())
@@ -28,5 +29,9 @@ G_DECLARE_FINAL_TYPE (ShellPlusPanelConstraint, shellplus_panel_constraint,
  * stretched to the monitor's width). */
 MetaExternalConstraint *shellplus_panel_constraint_new (MetaDisplay   *display,
                                                         ShellPlusRole  role);
+
+/* Where the text cursor is, for SHELLPLUS_ROLE_IM_CANDIDATES. */
+void shellplus_panel_constraint_set_anchor (ShellPlusPanelConstraint *self,
+                                            const MtkRectangle       *anchor);
 
 G_END_DECLS

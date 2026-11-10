@@ -13,12 +13,15 @@
 
 mod auth;
 mod pam;
+mod status_bar;
 
 use crate::ipc::ShellClient;
 use crate::notifications::Notifications;
+use crate::quick_settings::Indicators;
 use crate::system;
 use adw::prelude::*;
 use auth::{Event, Verifier};
+use status_bar::StatusBar;
 use gtk::{gdk, gio, glib};
 use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
@@ -47,6 +50,7 @@ struct LockScreen {
     app: adw::Application,
     client: Rc<ShellClient>,
     notifications: Rc<Notifications>,
+    indicators: Rc<Indicators>,
     on_lock: Box<dyn Fn()>,
     ui: RefCell<Option<Rc<Ui>>>,
 }
@@ -55,6 +59,7 @@ pub fn install(
     app: &adw::Application,
     client: &Rc<ShellClient>,
     notifications: &Rc<Notifications>,
+    indicators: &Rc<Indicators>,
     on_lock: impl Fn() + 'static,
 ) {
     load_css();
@@ -62,6 +67,7 @@ pub fn install(
         app: app.clone(),
         client: client.clone(),
         notifications: notifications.clone(),
+        indicators: indicators.clone(),
         on_lock: Box::new(on_lock),
         ui: RefCell::default(),
     });
@@ -69,6 +75,9 @@ pub fn install(
     client.connect_state(move |state| {
         if let Some(lock) = weak.upgrade() {
             lock.set_locked(state.locked);
+            if let Some(ui) = lock.ui.borrow().as_ref() {
+                ui.status_bar.update(state);
+            }
         }
     });
     // The application keeps the lock screen alive (state callbacks only
@@ -129,6 +138,7 @@ struct Ui {
     password: gtk::PasswordEntry,
     unlock: gtk::Button,
     message: gtk::Label,
+    status_bar: StatusBar,
     user: String,
 
     verifier: RefCell<Option<Rc<Verifier>>>,
@@ -262,6 +272,11 @@ impl Ui {
         let root = gtk::Overlay::builder().child(&wallpaper).build();
         root.add_overlay(&dim);
         root.add_overlay(&stack);
+        // GNOME's panel stays up over both the curtain and the prompt.
+        let status_bar = StatusBar::new(&lock.indicators);
+        status_bar.update(&lock.client.state());
+        root.add_overlay(&status_bar.bar);
+        root.add_overlay(&status_bar.menu);
 
         let window = gtk::ApplicationWindow::builder()
             .application(&lock.app)
@@ -317,6 +332,7 @@ impl Ui {
             password,
             unlock,
             message,
+            status_bar,
             user,
             verifier: RefCell::default(),
             querying: Cell::new(false),
@@ -369,10 +385,12 @@ impl Ui {
 
         let click = gtk::GestureClick::new();
         let weak = self.this.clone();
-        click.connect_pressed(move |_, _, _, _| {
+        click.connect_pressed(move |_, _, x, y| {
             if let Some(ui) = weak.upgrade() {
                 ui.touch();
-                if ui.page() == Page::Curtain {
+                // Clicks on the accessibility menu (or closing it) leave the
+                // curtain down.
+                if !ui.status_bar.handle_click(&ui.window, x, y) && ui.page() == Page::Curtain {
                     ui.show_prompt();
                 }
             }
@@ -440,6 +458,9 @@ impl Ui {
 
     fn on_key(&self, key: gdk::Key) -> glib::Propagation {
         self.touch();
+        if key == gdk::Key::Escape && self.status_bar.close_menu() {
+            return glib::Propagation::Stop;
+        }
         match self.page() {
             Page::Curtain => {
                 // Modifiers alone (e.g. Super, Alt+Tab attempts) leave the

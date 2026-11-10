@@ -52,7 +52,8 @@ and costs nothing per frame.
 | `compositor/src/shellplus-background.c` | Wallpaper |
 | `compositor/src/shellplus-dbus.c` | The compositor ↔ panel interface |
 | `compositor/src/shellplus-shell-dbus.c` | The `org.gnome.Shell` subset gnome-settings-daemon uses (OSD, media keys) |
-| `compositor/src/shellplus-input-sources.c` | Keyboard layouts and Super+Space |
+| `compositor/src/shellplus-input-sources.c` | Keyboard layouts, IBus sources and Super+Space |
+| `compositor/src/shellplus-input-method.c` | IBus input methods: Mutter's `ClutterInputMethod`, ibus-daemon, the IBus panel service, `org.gnome.ShellPlus.InputMethod` |
 | `compositor/src/shellplus-switcher.c` | Alt-Tab key handling (the pop-up is `panel/src/switcher.rs`) |
 | `compositor/src/shellplus-animations.c` | Window open/close/minimize and workspace-switch animations |
 | `compositor/src/shellplus-screenshot.c` | Screen/window captures, `org.gnome.Shell.Screenshot` (with its caller allowlist) and the private interface the screenshot UI uses |
@@ -61,6 +62,7 @@ and costs nothing per frame.
 | `panel/src/panel.rs` | Bar window, translucent/solid switching, hot corner |
 | `panel/src/overview/` | Activities overview: window picker, workspaces and thumbnails, search entry, animations |
 | `panel/src/screenshot/` | Screenshot UI (Print): selection/screen/window modes, saving, clipboard, notification |
+| `panel/src/screencast/` | Screen recording (Mutter ScreenCast + `gst-launch-1.0` to WebM), the red top-bar indicator, `org.gnome.Shell.Screencast` |
 | `panel/src/wallpaper.rs` | Blurred wallpaper strip |
 | `panel/src/quick_settings/` | Status icons and the quick settings menu |
 | `panel/src/notifications/` | Notification servers, banners, the date menu list |
@@ -70,6 +72,7 @@ and costs nothing per frame.
 | `panel/src/lock_screen/` | Lock screen UI (curtain, unlock prompt) and password checking (GDM reauthentication channel, else PAM) |
 | `panel/src/polkit_agent.rs` | polkit authentication agent (administrator password prompt) |
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
+| `panel/src/input_method.rs` | IBus candidate pop-up |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
 | `panel/src/calendar/` | Calendar events in the date menu (GNOME Shell's calendar server) |
 | `panel/src/app_grid/` | Dash, app grid (pages, folders) and app search, for the overview to embed |
@@ -85,7 +88,7 @@ and costs nothing per frame.
 | `org.gnome.shell` (if installed) | `favorite-apps`, `app-picker-layout` (otherwise favourites live in `~/.config/gnome-shell-plus/apps.ini`) |
 | `org.gnome.desktop.app-folders` | `folder-children`, and each folder's `name`, `translate`, `apps`, `categories`, `excluded-apps` |
 | `org.gnome.desktop.notifications` | `show-banners` (Do Not Disturb), per-app settings |
-| `org.gnome.desktop.input-sources` | `sources` (XKB layouts), `mru-sources`, `xkb-options`, `xkb-model` |
+| `org.gnome.desktop.input-sources` | `sources` (XKB layouts and IBus engines), `mru-sources`, `xkb-options`, `xkb-model` |
 | `org.gnome.desktop.wm.keybindings` | `switch-input-source(-backward)` (Super+Space), `switch-applications(-backward)`, `switch-windows(-backward)`, `switch-group(-backward)` |
 | `org.gnome.settings-daemon.plugins.color` | `night-light-enabled` |
 | `org.gnome.mutter` | `dynamic-workspaces`, plus everything Mutter reads itself (`org.gnome.desktop.wm.*` keybindings and preferences, etc.) |
@@ -101,7 +104,7 @@ Requirements: Mutter 50 development files (libmutter-18), GTK 4.16+,
 libadwaita 1.6+, Rust, Meson. On Fedora 44:
 
 ```bash
-sudo dnf install gcc meson ninja-build cargo mutter-devel gtk4-devel libadwaita-devel gsettings-desktop-schemas-devel
+sudo dnf install gcc meson ninja-build cargo mutter-devel gtk4-devel libadwaita-devel gsettings-desktop-schemas-devel ibus-devel pulseaudio-libs-devel
 ```
 
 ```bash
@@ -223,6 +226,14 @@ Done:
   installed the events part stays hidden
 - keyboard layouts: indicator and menu in the panel, Super+Space /
   Super+Shift+Space switching (most recently used first, like GNOME Shell)
+- IBus input methods (Chinese, Japanese, Korean, …) like GNOME Shell on
+  Wayland: the compositor starts `ibus-daemon --panel disable`, is Mutter's
+  input method for text-input-v3 clients (key events, preedit, commit,
+  surrounding text) and the IBus panel; IBus sources are listed with the
+  engine's symbol and name, switch with Super+Space and load the engine's
+  layout; the panel draws the candidate pop-up (preedit/auxiliary text,
+  vertical or horizontal candidates, page buttons, click to pick) at the
+  text cursor. Password fields bypass IBus. `make shots SCENARIO=ibus`
 - Alt-Tab / Super+Tab app switcher and the window switcher, with GNOME's
   pop-up (a quick tap switches without showing it)
 - window animations: open, close, minimize/unminimize, workspace slide
@@ -246,12 +257,22 @@ Done:
   root-owned executable under `/usr`, may call it
   (`SHELLPLUS_SCREENSHOT_ALLOW_ALL=1` turns that off for tests). The Print
   keys need GNOME Shell's `org.gnome.shell.keybindings` schema
+- screen recording: the screenshot UI's video switch records the screen or
+  a selection (pointer optional) through Mutter's ScreenCast API and
+  GStreamer (`gst-launch-1.0`, VP9 or VP8 in WebM) to
+  `~/Videos/Screencasts`; a red pill in the top bar shows the elapsed time
+  and stops it, as does Ctrl+Shift+Alt+R (`show-screen-recording-ui`);
+  "Screencast recorded" with Show in Files afterwards; locking stops it.
+  `org.gnome.Shell.Screencast` (Screencast, ScreencastArea,
+  StopScreencast) has the screenshot API's caller allowlist; its
+  `pipeline` option is ignored
 - lock screen: `org.gnome.ScreenSaver` (Super+L through
   gnome-settings-daemon, the quick settings Lock button), `loginctl
   lock-session`, locking before suspend and when idle
   (`org.gnome.desktop.screensaver`, `org.gnome.desktop.session idle-delay`);
   GNOME's curtain (clock, date, notification counts) and unlock prompt over
-  the blurred wallpaper. The password goes to GDM's reauthentication
+  the blurred wallpaper, with GNOME's lock-screen top bar (the top bar's
+  status icons mirrored live, keyboard layout, accessibility menu). The password goes to GDM's reauthentication
   channel when GDM runs, else to PAM (`/etc/pam.d/gnome-shell-plus`,
   installed by `make install`). The compositor keeps the screen black if
   the panel isn't there and only takes an unlock from the panel it started
@@ -271,9 +292,10 @@ Missing compared to GNOME Shell:
 - calendar: no world clocks, weather or week numbers; events come only
   from GNOME Shell's calendar server
 - keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
-- IBus input methods (only XKB layouts are used), per-window layouts, the
+- IBus property menus (engine modes such as Chinese/English in the
+  indicator menu), X11 input methods (XIM), per-window layouts, the
   Super+Space switcher pop-up (a tap switches straight away)
-- screen recording; the screenshot UI only covers the primary monitor
+- the screenshot UI and screen recording only cover the primary monitor
 - multiple Wi-Fi/Bluetooth adapters; VPN plugins' own auth dialogs (VPN
   secrets get a plain password prompt), modem/mobile broadband
 - XML wallpaper slideshows (the first image is used)

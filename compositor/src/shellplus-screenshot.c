@@ -60,14 +60,17 @@
  *
  *   ShowUI(u request, s mode)   signal: show the UI. request is 0 for the
  *       keyboard shortcut/ShowUI, else a D-Bus request to Finish; mode is
- *       "", "screen", "window", "select-area", "pick-color" or "interactive".
+ *       "", "screen", "window", "select-area", "pick-color", "interactive" or
+ *       "screencast" (the panel stops a running recording, else opens the
+ *       UI in video mode).
  *   ScreenshotTaken(s path)     signal: a Shift+Print / Alt+Print shot was
  *       saved (and copied); the panel posts the notification.
  *
  * Key bindings, from org.gnome.shell.keybindings when it's installed:
  * show-screenshot-ui (Print), screenshot (Shift+Print: the whole screen
  * right away) and screenshot-window (Alt+Print: the focused window right
- * away), like GNOME Shell.
+ * away) and show-screen-recording-ui (Ctrl+Shift+Alt+R: start or stop a
+ * screen recording), like GNOME Shell.
  */
 
 #define PUBLIC_NAME  "org.gnome.Shell.Screenshot"
@@ -1145,6 +1148,13 @@ on_show_ui (MetaDisplay *display, MetaWindow *window, const ClutterEvent *event,
 }
 
 static void
+on_show_recording_ui (MetaDisplay *display, MetaWindow *window, const ClutterEvent *event,
+                      MetaKeyBinding *binding, gpointer user_data)
+{
+  shellplus_screenshot_show_ui (user_data, "screencast");
+}
+
+static void
 on_screenshot (MetaDisplay *display, MetaWindow *window, const ClutterEvent *event,
                MetaKeyBinding *binding, gpointer user_data)
 {
@@ -1164,6 +1174,7 @@ static const struct
   MetaKeyHandlerFunc handler;
 } bindings[] = {
   { "show-screenshot-ui", on_show_ui },
+  { "show-screen-recording-ui", on_show_recording_ui },
   { "screenshot", on_screenshot },
   { "screenshot-window", on_screenshot_window },
 };

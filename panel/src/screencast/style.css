@@ -1,0 +1,24 @@
+/* GNOME Shell's screen recording indicator (_panel.scss): a red pill with
+ * a stop icon and the elapsed time. */
+.panel .panel-button.screen-recording-indicator {
+  background-color: rgba(224, 27, 36, 0.8);
+  color: #ffffff;
+  padding: 0 10px;
+  margin-right: 4px;
+}
+
+.panel .panel-button.screen-recording-indicator:hover {
+  background-color: rgba(230, 62, 70, 0.9);
+}
+
+.panel .panel-button.screen-recording-indicator:active {
+  background-color: rgba(192, 28, 40, 0.9);
+}
+
+.screen-recording-indicator image {
+  -gtk-icon-size: 12px;
+}
+
+.screen-recording-indicator label {
+  font-feature-settings: "tnum";
+}

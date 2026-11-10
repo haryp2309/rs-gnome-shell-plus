@@ -20,6 +20,7 @@
 #include "shellplus-animations.h"
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
+#include "shellplus-input-method.h"
 #include "shellplus-input-sources.h"
 #include "shellplus-lock.h"
 #include "shellplus-overview.h"
@@ -50,6 +51,7 @@
 #define OVERVIEW_TITLE "Overview"
 #define SCREENSHOT_TITLE "Screenshot"
 #define LOCK_TITLE "Lock Screen"
+#define IM_CANDIDATES_TITLE "Input Method Candidates"
 
 struct _ShellPlusPlugin
 {
@@ -59,6 +61,7 @@ struct _ShellPlusPlugin
   ShellPlusDBus *dbus;
   ShellPlusShellDBus *shell_dbus;
   ShellPlusInputSources *input_sources;
+  ShellPlusInputMethod *input_method;
   ShellPlusSwitcher *switcher;
   ShellPlusOverview *overview;
   ShellPlusScreenshot *screenshot;
@@ -73,6 +76,8 @@ struct _ShellPlusPlugin
   MetaExternalConstraint *system_dialog_constraint;
   MetaExternalConstraint *switcher_constraint;
   MetaExternalConstraint *overview_constraint;
+  MetaExternalConstraint *im_constraint;
+  MetaWindow *im_window;
   MetaWindow *system_dialog;
   MetaWindow *overview_window;
   MetaWindow *screenshot_window;
@@ -860,6 +865,57 @@ setup_screenshot_window (ShellPlusPlugin *self,
     show_screenshot_window (self, window);
 }
 
+/* The input method pop-up sits at the text cursor. It is a dock: Mutter
+ * never focuses docks on click, and taking the focus from the client
+ * would reset its input method. */
+static void
+place_im_window (ShellPlusPlugin *self)
+{
+  MtkRectangle cursor, frame;
+
+  if (!self->input_method ||
+      !shellplus_input_method_get_cursor_rect (self->input_method, &cursor))
+    return;
+
+  shellplus_panel_constraint_set_anchor (SHELLPLUS_PANEL_CONSTRAINT (self->im_constraint),
+                                         &cursor);
+  if (!self->im_window)
+    return;
+
+  meta_window_get_frame_rect (self->im_window, &frame);
+  meta_window_move_frame (self->im_window, FALSE, frame.x, frame.y);
+}
+
+static void
+on_im_window_unmanaged (MetaWindow      *window,
+                        ShellPlusPlugin *self)
+{
+  if (self->im_window == window)
+    self->im_window = NULL;
+}
+
+static void
+setup_im_window (ShellPlusPlugin *self,
+                 MetaWindow      *window)
+{
+  self->im_window = window;
+  meta_window_set_type (window, META_WINDOW_DOCK);
+  meta_window_hide_from_window_list (window);
+  meta_window_stick (window);
+  meta_window_add_external_constraint (window, self->im_constraint);
+  g_signal_connect_object (window, "unmanaged",
+                           G_CALLBACK (on_im_window_unmanaged), self, 0);
+  place_im_window (self);
+}
+
+static void
+on_input_method_engines_changed (gpointer user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  shellplus_input_sources_set_input_method (self->input_sources, self->input_method);
+}
+
 static ShellPlusRole
 role_for_window (MetaWindow *window)
 {
@@ -881,6 +937,8 @@ role_for_window (MetaWindow *window)
     return SHELLPLUS_ROLE_SCREENSHOT;
   if (g_strcmp0 (title, LOCK_TITLE) == 0)
     return SHELLPLUS_ROLE_LOCK;
+  if (g_strcmp0 (title, IM_CANDIDATES_TITLE) == 0)
+    return SHELLPLUS_ROLE_IM_CANDIDATES;
   return SHELLPLUS_ROLE_NONE;
 }
 
@@ -911,6 +969,9 @@ setup_panel_client_window (ShellPlusPlugin *self,
       return TRUE;
     case SHELLPLUS_ROLE_LOCK:
       shellplus_lock_setup_window (self->lock, window);
+      return TRUE;
+    case SHELLPLUS_ROLE_IM_CANDIDATES:
+      setup_im_window (self, window);
       return TRUE;
     case SHELLPLUS_ROLE_NONE:
       break;
@@ -1154,6 +1215,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->osd_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OSD);
   self->switcher_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SWITCHER);
   self->overview_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_OVERVIEW);
+  self->im_constraint = shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_IM_CANDIDATES);
   self->system_dialog_constraint =
     shellplus_panel_constraint_new (display, SHELLPLUS_ROLE_SYSTEM_DIALOG);
   self->mutter_settings = g_settings_new ("org.gnome.mutter");
@@ -1162,6 +1224,14 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->input_sources = shellplus_input_sources_new (display,
                                                      (ShellPlusInputSourcesChanged) publish_state,
                                                      self);
+  self->input_method = shellplus_input_method_new (display);
+  shellplus_input_method_set_callbacks (self->input_method,
+                                        on_input_method_engines_changed,
+                                        (ShellPlusInputMethodNotify) place_im_window, self);
+  shellplus_input_sources_set_input_method (self->input_sources, self->input_method);
+  clutter_backend_set_input_method (
+    clutter_context_get_backend (clutter_actor_get_context (CLUTTER_ACTOR (meta_compositor_get_stage (compositor)))),
+    CLUTTER_INPUT_METHOD (self->input_method));
   self->switcher = shellplus_switcher_new (display, self->dbus, is_panel_client_window, self);
   self->overview = shellplus_overview_new (display, is_panel_client_window, self);
   self->screenshot = shellplus_screenshot_new (display, get_panel_pid, self);
@@ -1204,6 +1274,9 @@ shellplus_plugin_map (MetaPlugin      *plugin,
   if (self->system_dialog &&
       meta_window_actor_get_meta_window (actor) == self->system_dialog)
     on_system_dialog_mapped (self);
+  /* Above the other docks (top bar, overview). */
+  if (meta_window_actor_get_meta_window (actor) == self->im_window)
+    meta_window_raise (self->im_window);
   if (self->lock)
     shellplus_lock_window_mapped (self->lock, meta_window_actor_get_meta_window (actor));
   if (g_object_get_data (G_OBJECT (meta_window_actor_get_meta_window (actor)), "shellplus-overview"))
@@ -1240,6 +1313,9 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_pointer (&self->overview, shellplus_overview_free);
   g_clear_pointer (&self->switcher, shellplus_switcher_free);
   g_clear_pointer (&self->input_sources, shellplus_input_sources_free);
+  if (self->input_method)
+    shellplus_input_method_shutdown (self->input_method);
+  g_clear_object (&self->input_method);
   g_clear_pointer (&self->shell_dbus, shellplus_shell_dbus_free);
   g_clear_pointer (&self->dbus, shellplus_dbus_free);
   g_clear_pointer (&self->background, shellplus_background_free);
@@ -1252,6 +1328,7 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_object (&self->osd_constraint);
   g_clear_object (&self->switcher_constraint);
   g_clear_object (&self->overview_constraint);
+  g_clear_object (&self->im_constraint);
   g_clear_object (&self->system_dialog_constraint);
   g_clear_object (&self->mutter_settings);
   g_free (self->color);

@@ -4,6 +4,8 @@
 
 /* Gap between the bottom of the top bar and a notification banner. */
 #define BANNER_MARGIN 6
+/* Gap between the text cursor and the input method pop-up. */
+#define CURSOR_MARGIN 4
 
 struct _ShellPlusPanelConstraint
 {
@@ -11,6 +13,7 @@ struct _ShellPlusPanelConstraint
 
   MetaDisplay *display;
   ShellPlusRole role;
+  MtkRectangle anchor;
 };
 
 static void constraint_iface_init (MetaExternalConstraintInterface *iface);
@@ -31,6 +34,22 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
 
   if (primary < 0)
     return FALSE;
+
+  /* Below the text cursor (above it if there's no room), on its monitor. */
+  if (self->role == SHELLPLUS_ROLE_IM_CANDIDATES)
+    {
+      MtkRectangle *anchor = &self->anchor;
+      int index = meta_display_get_monitor_index_for_rect (self->display, anchor);
+
+      meta_display_get_monitor_geometry (self->display, index >= 0 ? index : primary, &monitor);
+      rect->x = anchor->x;
+      rect->y = anchor->y + anchor->height + CURSOR_MARGIN;
+      if (rect->y + rect->height > monitor.y + monitor.height)
+        rect->y = anchor->y - CURSOR_MARGIN - rect->height;
+      rect->x = CLAMP (rect->x, monitor.x, MAX (monitor.x, monitor.x + monitor.width - rect->width));
+      rect->y = CLAMP (rect->y, monitor.y, MAX (monitor.y, monitor.y + monitor.height - rect->height));
+      return TRUE;
+    }
 
   meta_display_get_monitor_geometry (self->display, primary, &monitor);
 
@@ -72,6 +91,7 @@ shellplus_panel_constraint_constrain (MetaExternalConstraint     *constraint,
       rect->y = monitor.y + (monitor.height - rect->height) / 2;
       break;
 
+    case SHELLPLUS_ROLE_IM_CANDIDATES:
     case SHELLPLUS_ROLE_NONE:
       return FALSE;
     }
@@ -104,4 +124,11 @@ shellplus_panel_constraint_new (MetaDisplay   *display,
   self->display = display;
   self->role = role;
   return META_EXTERNAL_CONSTRAINT (self);
+}
+
+void
+shellplus_panel_constraint_set_anchor (ShellPlusPanelConstraint *self,
+                                       const MtkRectangle       *anchor)
+{
+  self->anchor = *anchor;
 }

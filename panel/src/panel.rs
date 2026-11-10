@@ -21,6 +21,8 @@ const TRANSITION_MS: u32 = 250;
 
 pub struct TopBar {
     pub window: gtk::ApplicationWindow,
+    /// The system status icons, mirrored by the lock screen.
+    pub indicators: Rc<quick_settings::Indicators>,
     overview: Rc<Cell<bool>>,
     apply: Rc<dyn Fn()>,
 }
@@ -63,8 +65,10 @@ pub fn build(
     bar.set_start_widget(Some(workspaces.widget()));
     bar.set_center_widget(Some(&clock::build(notifications)));
     let end = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    end.append(&crate::screencast::indicator());
     end.append(&keyboard::build(&client));
-    end.append(&quick_settings::build(client.clone()));
+    let (system_menu, indicators) = quick_settings::build(client.clone());
+    end.append(&system_menu);
     bar.set_end_widget(Some(&end));
 
     let overlay = gtk::Overlay::new();
@@ -126,7 +130,7 @@ pub fn build(
 
     hot_corner(&window, on_activities);
 
-    Rc::new(TopBar { window, overview, apply })
+    Rc::new(TopBar { window, indicators, overview, apply })
 }
 
 /// GNOME's hot corner: pushing the pointer into the top-left corner pixel

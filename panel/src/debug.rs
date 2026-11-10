@@ -11,7 +11,8 @@
 //!   Inspect(name) -> a{sv} a widget's state: sensitive, visible, mapped,
 //!                         focused, opacity, `bounds` (x, y, width, height
 //!                         in its window), `classes` (CSS classes), and
-//!                         text for entries/labels; for a calendar, the
+//!                         text for entries/labels (an image's icon
+//!                         name); for a calendar, the
 //!                         selected date as text (YYYY-MM-DD) and `marked`
 //!                         (the marked days of the month)
 //!   SetText(name, text)   set an entry's text
@@ -192,6 +193,9 @@ fn inspect(widget: &gtk::Widget) -> std::collections::HashMap<String, glib::Vari
         state.insert("text".into(), editable.text().to_variant());
     } else if let Some(label) = widget.downcast_ref::<gtk::Label>() {
         state.insert("text".into(), label.label().to_variant());
+    } else if let Some(image) = widget.downcast_ref::<gtk::Image>() {
+        let icon = image.icon_name().map(|n| n.to_string()).unwrap_or_default();
+        state.insert("text".into(), icon.to_variant());
     } else if let Some(calendar) = widget.downcast_ref::<gtk::Calendar>() {
         let date = calendar.date().format("%Y-%m-%d").map(|s| s.to_string()).unwrap_or_default();
         state.insert("text".into(), date.to_variant());

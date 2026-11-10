@@ -8,10 +8,14 @@
 //! signal: for the Print key, the quick settings button (which calls the
 //! private ShowUI method) and for org.gnome.Shell.Screenshot's InteractiveScreenshot,
 //! SelectArea and PickColor, whose answers go back with Finish.
+//!
+//! Video mode hands the area to crate::screencast, which records it. The
+//! "screencast" ShowUI mode (show-screen-recording-ui, Ctrl+Shift+Alt+R)
+//! stops a running recording, or opens the UI in video mode.
 
 mod client;
 mod icons;
-mod save;
+pub(crate) mod save;
 mod ui;
 
 use crate::ipc::ShellClient;
@@ -65,6 +69,14 @@ pub fn install(app: &adw::Application, shell: &Rc<ShellClient>) {
             last_selection: Cell::new(None),
         }
     });
+    // Tests: what show-screen-recording-ui does (the key binding needs
+    // GNOME Shell's schema, and the private ShowUI only takes the panel).
+    let weak = Rc::downgrade(&screenshots);
+    crate::debug::register("screenshot-screencast-shortcut", move |_| {
+        if let Some(screenshots) = weak.upgrade() {
+            screenshots.on_event(Event::ShowUi { request: 0, mode: "screencast".into() });
+        }
+    });
     INSTANCE.with(|instance| instance.replace(Some(screenshots)));
 }
 
@@ -77,6 +89,11 @@ impl Screenshots {
     }
 
     fn open(&self, request: u32, mode: &str) {
+        let video = mode == "screencast";
+        if video && request == 0 && crate::screencast::is_recording() {
+            crate::screencast::stop();
+            return;
+        }
         if self.busy.replace(true) {
             self.client.finish(request, false, glib::VariantDict::new(None));
             return;
@@ -97,7 +114,7 @@ impl Screenshots {
                 return;
             };
             if kind != Kind::Screenshot {
-                this.present(request, kind, mode, plain, scale, None, Vec::new());
+                this.present(request, kind, mode, video, plain, scale, None, Vec::new());
                 return;
             }
             let weak = this.this.clone();
@@ -108,7 +125,7 @@ impl Screenshots {
                 this.windows.list_windows(move |windows| {
                     let Some(this) = weak.upgrade() else { return };
                     this.capture_windows(windows.unwrap_or_default(), move |this, shots| {
-                        this.present(request, kind, mode, plain, scale, with_pointer, shots);
+                        this.present(request, kind, mode, video, plain, scale, with_pointer, shots);
                     });
                 });
             });
@@ -167,6 +184,7 @@ impl Screenshots {
         request: u32,
         kind: Kind,
         mode: Mode,
+        video: bool,
         plain: Image,
         scale: f64,
         with_pointer: Option<Image>,
@@ -184,7 +202,21 @@ impl Screenshots {
             Some(r) if r.x + r.w <= mw && r.y + r.h <= mh => r,
             _ => Rect::new((mw / 4.0).round(), (mh / 4.0).round(), (mw / 2.0).round(), (mh / 2.0).round()),
         };
-        let params = Params { kind, mode, plain, with_pointer, scale, monitor, windows, selection };
+        // Only the shortcut, ShowUI and Print may record (not an
+        // InteractiveScreenshot request), one recording at a time.
+        let video_allowed = request == 0 && !crate::screencast::is_recording();
+        let params = Params {
+            kind,
+            mode,
+            plain,
+            with_pointer,
+            scale,
+            monitor,
+            windows,
+            selection,
+            video,
+            video_allowed,
+        };
 
         let this = self.this.clone();
         let ui = Ui::new(&self.app, params, move |ui, outcome| {
@@ -219,6 +251,11 @@ impl Screenshots {
                     }
                 }
                 flash = Some(rect);
+            }
+            Outcome::Record { rect, cursor } => {
+                // After the UI is gone, so it isn't in the recording.
+                glib::timeout_add_local_once(UNMAP_DELAY * 2, move || crate::screencast::start_ui(rect, cursor));
+                success = false;
             }
             Outcome::Area(rect) => result.insert("rect", rect),
             Outcome::Color(color) => result.insert("color", color),

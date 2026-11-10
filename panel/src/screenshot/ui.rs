@@ -4,6 +4,10 @@
 //! Also the bare variants for org.gnome.Shell.Screenshot's SelectArea
 //! (drag a rectangle) and PickColor (click a pixel).
 //!
+//! The photo/video switch picks screen recording: Selection and Screen then
+//! record (crate::screencast) instead of capturing, the capture button
+//! turns red, and the frozen image is hidden so the live screen shows.
+//!
 //! The compositor recognizes the window by its title (`Screenshot`),
 //! stretches it over the whole primary monitor above everything, and
 //! focuses it.
@@ -48,6 +52,8 @@ pub type StageRect = (i32, i32, i32, i32);
 pub enum Outcome {
     Cancelled,
     Captured { image: Image, rect: StageRect },
+    /// Video mode: record this area, with or without the pointer.
+    Record { rect: StageRect, cursor: bool },
     Area(StageRect),
     Color((f64, f64, f64)),
 }
@@ -69,6 +75,10 @@ pub struct Params {
     pub windows: Vec<WindowShot>,
     /// Monitor-relative selection to start with.
     pub selection: Rect,
+    /// Start in video (screen recording) mode.
+    pub video: bool,
+    /// Whether the video mode may be picked at all.
+    pub video_allowed: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -88,6 +98,8 @@ pub struct Ui {
     toolbar: gtk::Widget,
     mode_buttons: Vec<(Mode, gtk::ToggleButton)>,
     pointer: gtk::ToggleButton,
+    capture: gtk::Button,
+    cast: gtk::ToggleButton,
     window_buttons: RefCell<Vec<gtk::ToggleButton>>,
 
     kind: Kind,
@@ -100,6 +112,7 @@ pub struct Ui {
     windows: Vec<WindowShot>,
 
     mode: Cell<Mode>,
+    video: Cell<bool>,
     selection: Cell<Rect>,
     /// SelectArea: whether a rectangle has been dragged yet.
     dragged: Cell<bool>,
@@ -119,7 +132,7 @@ impl Ui {
             .height_request(mh)
             .build();
         let fixed = gtk::Fixed::builder().name("screenshot-windows").visible(false).build();
-        let (toolbar, mode_buttons, capture, pointer, close) = toolbar();
+        let Toolbar { root: toolbar, mode_buttons, capture, pointer, close, cast } = toolbar();
 
         let overlay = gtk::Overlay::new();
         overlay.set_child(Some(&area));
@@ -144,6 +157,8 @@ impl Ui {
             toolbar: toolbar.upcast(),
             mode_buttons,
             pointer,
+            capture: capture.clone(),
+            cast: cast.clone(),
             window_buttons: RefCell::default(),
             kind: params.kind,
             plain: params.plain,
@@ -154,6 +169,7 @@ impl Ui {
             monitor: (mx, my, mw, mh),
             windows: params.windows,
             mode: Cell::new(params.mode),
+            video: Cell::new(false),
             selection: Cell::new(params.selection),
             dragged: Cell::new(false),
             drag: Cell::new(None),
@@ -164,7 +180,11 @@ impl Ui {
         ui.toolbar.set_visible(ui.kind == Kind::Screenshot);
         ui.build_window_picker();
         ui.connect(&capture, &close);
+        ui.connect_shot_cast(params.video_allowed);
         ui.set_mode(params.mode);
+        if params.video && params.video_allowed {
+            ui.cast.set_active(true);
+        }
         ui
     }
 
@@ -301,6 +321,48 @@ impl Ui {
         ));
     }
 
+    /// The photo/video switch: exactly one of the two is active.
+    fn connect_shot_cast(self: &Rc<Self>, allowed: bool) {
+        self.cast.set_sensitive(allowed);
+        if !allowed {
+            self.cast.set_tooltip_text(Some("Screen recording is not available"));
+        }
+        let weak = Rc::downgrade(self);
+        self.cast.connect_toggled(glib::clone!(
+            #[strong]
+            weak,
+            move |cast| {
+                if let Some(ui) = weak.upgrade() {
+                    ui.set_video(cast.is_active());
+                }
+            }
+        ));
+    }
+
+    fn set_video(&self, video: bool) {
+        if self.video.replace(video) == video {
+            return;
+        }
+        if video {
+            self.capture.add_css_class("cast");
+            self.capture.set_tooltip_text(Some("Record"));
+        } else {
+            self.capture.remove_css_class("cast");
+            self.capture.set_tooltip_text(Some("Capture"));
+        }
+        // GNOME can't record a window: that mode is off in video mode.
+        let window_ok = !video && !self.windows.is_empty();
+        for (m, button) in &self.mode_buttons {
+            if *m == Mode::Window {
+                button.set_sensitive(window_ok);
+            }
+        }
+        if video && self.mode.get() == Mode::Window {
+            self.activate_mode(Mode::Selection);
+        }
+        self.set_mode(self.mode.get());
+    }
+
     fn key_pressed(&self, key: gdk::Key) -> glib::Propagation {
         let screenshot = self.kind == Kind::Screenshot;
         match key {
@@ -308,7 +370,10 @@ impl Ui {
             gdk::Key::Return | gdk::Key::KP_Enter | gdk::Key::space if screenshot => self.capture(),
             gdk::Key::s | gdk::Key::S if screenshot => self.activate_mode(Mode::Selection),
             gdk::Key::c | gdk::Key::C if screenshot => self.activate_mode(Mode::Screen),
-            gdk::Key::w | gdk::Key::W if screenshot => self.activate_mode(Mode::Window),
+            gdk::Key::w | gdk::Key::W if screenshot && !self.video.get() => self.activate_mode(Mode::Window),
+            gdk::Key::v | gdk::Key::V if screenshot && self.cast.is_sensitive() => {
+                self.cast.set_active(!self.cast.is_active())
+            }
             gdk::Key::p | gdk::Key::P if screenshot => self.pointer.set_active(!self.pointer.is_active()),
             _ => return glib::Propagation::Proceed,
         }
@@ -322,7 +387,11 @@ impl Ui {
     }
 
     fn set_mode(&self, mode: Mode) {
-        let mode = if mode == Mode::Window && self.windows.is_empty() { Mode::Selection } else { mode };
+        let mode = if mode == Mode::Window && (self.windows.is_empty() || self.video.get()) {
+            Mode::Selection
+        } else {
+            mode
+        };
         self.mode.set(mode);
         for (m, button) in &self.mode_buttons {
             if *m == mode && !button.is_active() {
@@ -559,6 +628,11 @@ impl Ui {
             Mode::Screen => Rect::new(0.0, 0.0, mw, mh),
             Mode::Selection => self.selection.get(),
         };
+        if self.video.get() {
+            let rect = self.stage_rect(&rect);
+            self.finish(Outcome::Record { rect, cursor: self.pointer.is_active() });
+            return;
+        }
         let frame = match (&self.with_pointer, self.pointer.is_active()) {
             (Some(with_pointer), true) => with_pointer,
             _ => &self.plain,
@@ -576,6 +650,8 @@ impl Ui {
     fn draw(&self, cr: &cairo::Context) {
         let (mw, mh) = self.monitor_size();
         let surface = match (&self.pointer_surface, self.pointer.is_active() && self.mode.get() != Mode::Window) {
+            // Video mode shows the live screen (the window is transparent).
+            _ if self.video.get() => None,
             (Some(with_pointer), true) => Some(with_pointer),
             _ => self.plain_surface.as_ref(),
         };
@@ -646,11 +722,18 @@ impl Ui {
     }
 }
 
-type Toolbar = (gtk::Box, Vec<(Mode, gtk::ToggleButton)>, gtk::Button, gtk::ToggleButton, gtk::Button);
+struct Toolbar {
+    root: gtk::Box,
+    mode_buttons: Vec<(Mode, gtk::ToggleButton)>,
+    capture: gtk::Button,
+    pointer: gtk::ToggleButton,
+    close: gtk::Button,
+    cast: gtk::ToggleButton,
+}
 
 /// GNOME Shell's screenshot panel: mode buttons on top; the pointer
-/// toggle, the round capture button and the (here disabled) screenshot /
-/// screencast switch below; a round close button on the top-right corner.
+/// toggle, the round capture button and the screenshot / screencast
+/// switch below; a round close button on the top-right corner.
 fn toolbar() -> Toolbar {
     let modes = gtk::Box::builder()
         .spacing(12)
@@ -697,24 +780,26 @@ fn toolbar() -> Toolbar {
         .child(&gtk::Box::builder().css_classes(["screenshot-ui-capture-button-circle"]).build())
         .build();
 
-    // Screenshot / screencast. Screen recording isn't supported.
+    // Screenshot / screencast.
     let shot_cast = gtk::Box::builder()
         .halign(gtk::Align::End)
         .valign(gtk::Align::Center)
         .css_classes(["screenshot-ui-shot-cast-container"])
         .build();
     let shot = gtk::ToggleButton::builder()
+        .name("screenshot-shot")
         .icon_name("camera-photo-symbolic")
         .tooltip_text("Screenshot")
         .active(true)
         .can_focus(false)
         .css_classes(["screenshot-ui-shot-cast-button"])
         .build();
-    shot.connect_toggled(|b| b.set_active(true));
     let cast = gtk::ToggleButton::builder()
+        .name("screenshot-cast")
         .icon_name("camera-web-symbolic")
-        .tooltip_text("Screen recording is not available")
-        .sensitive(false)
+        .tooltip_text("Screencast")
+        .can_focus(false)
+        .group(&shot)
         .css_classes(["screenshot-ui-shot-cast-button"])
         .build();
     shot_cast.append(&shot);
@@ -757,5 +842,5 @@ fn toolbar() -> Toolbar {
         .margin_bottom(28)
         .build();
     root.append(&corner);
-    (root, mode_buttons, capture, pointer, close)
+    Toolbar { root, mode_buttons, capture, pointer, close, cast }
 }

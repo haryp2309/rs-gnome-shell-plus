@@ -2,6 +2,8 @@
 
 #include "shellplus-input-sources.h"
 
+#include <ibus.h>
+#include <string.h>
 #include <meta/meta-backend.h>
 #include <meta/meta-context.h>
 #include <xkbcommon/xkbregistry.h>
@@ -10,14 +12,17 @@
  * org.gnome.desktop.input-sources, the most recently used one is first in
  * mru-sources and is the active one, and Super+Space (the
  * switch-input-source keybinding) switches to the previously used source.
- * Only XKB sources are supported; IBus input methods are skipped. */
+ * IBus sources need ibus-daemon (see shellplus-input-method.c) and are
+ * skipped while it doesn't know their engine. They load the engine's XKB
+ * layout and make it IBus's global engine. */
 
 /* XKB keymaps hold at most 4 layout groups. */
 #define MAX_GROUPS 4
 
 typedef struct
 {
-  char *id;            /* "de+nodeadkeys" */
+  gboolean ibus;       /* an IBus engine rather than an XKB layout */
+  char *id;            /* "de+nodeadkeys", or the IBus engine "m17n:zh:tonepy" */
   char *layout;        /* "de" */
   char *variant;       /* "nodeadkeys" or "" */
   char *short_name;    /* "de" */
@@ -30,6 +35,7 @@ struct _ShellPlusInputSources
   MetaBackend *backend;
   ShellPlusInputSourcesChanged changed;
   gpointer user_data;
+  ShellPlusInputMethod *input_method;
 
   GSettings *settings;
   GSettings *keybindings;
@@ -111,6 +117,45 @@ source_new (ShellPlusInputSources *self,
   return source;
 }
 
+/* Like GNOME Shell's keyboard.js: the engine's layout (usually "us"), its
+ * symbol or language code as the short name, "Language (Engine)" as the
+ * display name. */
+static Source *
+source_new_ibus (const char     *id,
+                 IBusEngineDesc *engine)
+{
+  Source *source = g_new0 (Source, 1);
+  const char *layout = ibus_engine_desc_get_layout (engine);
+  const char *variant = ibus_engine_desc_get_layout_variant (engine);
+  const char *symbol = ibus_engine_desc_get_symbol (engine);
+  const char *language = ibus_engine_desc_get_language (engine);
+  const char *longname = ibus_engine_desc_get_longname (engine);
+  const char *textdomain = ibus_engine_desc_get_textdomain (engine);
+  g_auto (GStrv) lang = g_strsplit (language ? language : "", "_", 2);
+  g_autofree char *language_name = ibus_get_language_name (language ? language : "");
+
+  source->ibus = TRUE;
+  source->id = g_strdup (id);
+  /* "default" means the engine has no layout of its own. */
+  source->layout = g_strdup (layout && *layout && g_strcmp0 (layout, "default") != 0 ?
+                             layout : "us");
+  source->variant = g_strdup (variant && *variant && g_strcmp0 (variant, "default") != 0 ?
+                              variant : "");
+
+  if (symbol && *symbol)
+    source->short_name = g_strdup (symbol);
+  else if (lang[0] && (strlen (lang[0]) == 2 || strlen (lang[0]) == 3))
+    source->short_name = g_ascii_strdown (lang[0], -1);
+  else
+    source->short_name = g_strdup ("\xe2\x8c\xa8");  /* U+2328 KEYBOARD */
+
+  if (longname && textdomain && *textdomain)
+    longname = g_dgettext (textdomain, longname);
+  source->display_name = g_strdup_printf ("%s (%s)", language_name ? language_name : "",
+                                          longname ? longname : id);
+  return source;
+}
+
 /* Like GNOME Shell, number sources that share a short name: en₁, en₂. */
 static void
 disambiguate_short_names (GPtrArray *sources)
@@ -156,14 +201,16 @@ find_source (ShellPlusInputSources *self,
              const char            *type,
              const char            *id)
 {
-  if (g_strcmp0 (type, "xkb") != 0)
+  gboolean ibus = g_strcmp0 (type, "ibus") == 0;
+
+  if (!ibus && g_strcmp0 (type, "xkb") != 0)
     return -1;
 
   for (guint i = 0; i < self->sources->len; i++)
     {
       Source *source = g_ptr_array_index (self->sources, i);
 
-      if (g_strcmp0 (source->id, id) == 0)
+      if (source->ibus == ibus && g_strcmp0 (source->id, id) == 0)
         return i;
     }
   return -1;
@@ -249,6 +296,13 @@ apply_keymap (ShellPlusInputSources *self)
                                                         display_list, short_list);
   meta_backend_set_keymap_async (self->backend, description, self->current - first,
                                  self->cancellable, on_keymap_set, NULL);
+
+  if (self->input_method && self->current < (int) self->sources->len)
+    {
+      Source *current = g_ptr_array_index (self->sources, self->current);
+
+      shellplus_input_method_set_engine (self->input_method, current->ibus ? current->id : NULL);
+    }
 }
 
 static void
@@ -270,8 +324,13 @@ reload (ShellPlusInputSources *self)
   g_variant_iter_init (&iter, configured);
   while (g_variant_iter_next (&iter, "(&s&s)", &type, &id))
     {
+      IBusEngineDesc *engine = NULL;
+
       if (g_strcmp0 (type, "xkb") == 0)
         g_ptr_array_add (self->sources, source_new (self, id));
+      else if (g_strcmp0 (type, "ibus") == 0 && self->input_method &&
+               (engine = shellplus_input_method_get_engine (self->input_method, id)))
+        g_ptr_array_add (self->sources, source_new_ibus (id, engine));
       else
         g_debug ("Skipping unsupported %s input source %s", type, id);
     }
@@ -318,11 +377,12 @@ shellplus_input_sources_activate (ShellPlusInputSources *self,
   source = g_ptr_array_index (self->sources, index);
   mru = g_settings_get_value (self->settings, "mru-sources");
   g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ss)"));
-  g_variant_builder_add (&builder, "(ss)", "xkb", source->id);
+  g_variant_builder_add (&builder, "(ss)", source->ibus ? "ibus" : "xkb", source->id);
   g_variant_iter_init (&iter, mru);
   while (g_variant_iter_next (&iter, "(&s&s)", &type, &id))
     {
-      if (g_strcmp0 (type, "xkb") != 0 || g_strcmp0 (id, source->id) != 0)
+      if (g_strcmp0 (type, source->ibus ? "ibus" : "xkb") != 0 ||
+          g_strcmp0 (id, source->id) != 0)
         g_variant_builder_add (&builder, "(ss)", type, id);
     }
   g_settings_set_value (self->settings, "mru-sources", g_variant_builder_end (&builder));
@@ -398,6 +458,14 @@ shellplus_input_sources_new (MetaDisplay                  *display,
   self->changed = changed;
   self->user_data = user_data;
   return self;
+}
+
+void
+shellplus_input_sources_set_input_method (ShellPlusInputSources *self,
+                                          ShellPlusInputMethod  *input_method)
+{
+  self->input_method = input_method;
+  reload (self);
 }
 
 GVariant *

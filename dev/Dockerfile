@@ -12,6 +12,7 @@ RUN dnf -y install \
       python3-gobject gtk4 libadwaita \
       adwaita-icon-theme gnome-backgrounds jxl-pixbuf-loader glycin-loaders \
       procps-ng \
+      ibus ibus-devel ibus-m17n m17n-db m17n-db-extras ibus-libpinyin wqy-microhei-fonts \
     && dnf clean all
 
 ENV CARGO_TARGET_DIR=/target

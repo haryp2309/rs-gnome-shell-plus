@@ -38,7 +38,7 @@ grep -q "mocks ready" "$OUT/mocks.log" || { cat "$OUT/mocks.log"; exit 1; }
 pipewire >/dev/null 2>&1 &
 wireplumber >/dev/null 2>&1 &
 pipewire-pulse >/dev/null 2>&1 &
-for _ in $(seq 100); do pactl info >/dev/null 2>&1 && break; sleep 0.1; done
+for _ in $(seq 300); do pactl info >/dev/null 2>&1 && break; sleep 0.1; done
 pactl load-module module-null-sink sink_name=speakers \
   sink_properties=device.description=Speakers >/dev/null
 pactl load-module module-null-sink sink_name=headphones \

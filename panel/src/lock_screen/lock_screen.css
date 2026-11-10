@@ -93,3 +93,48 @@ window.lock-screen .lock-message {
 window.lock-screen .lock-message.error {
   color: #ff938c;
 }
+
+/* The top bar (GNOME's panel in unlock-dialog mode): transparent over the
+ * wallpaper, white icons, nothing clickable but the accessibility menu. */
+window.lock-screen .lock-bar {
+  min-height: 32px;
+  padding: 0 6px;
+  font-weight: bold;
+}
+
+window.lock-screen .lock-bar-item {
+  padding: 0 12px;
+}
+
+window.lock-screen .lock-bar button.lock-bar-button {
+  min-height: 0;
+  min-width: 0;
+  margin: 3px 0;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: none;
+  box-shadow: none;
+  color: inherit;
+}
+
+window.lock-screen .lock-bar button.lock-bar-button:hover {
+  background-color: alpha(currentColor, 0.15);
+}
+
+window.lock-screen .lock-bar button.lock-bar-button:checked {
+  background-color: alpha(currentColor, 0.25);
+}
+
+window.lock-screen .lock-a11y-menu {
+  margin: 38px 6px 0 0;
+  padding: 6px;
+  min-width: 260px;
+  border-radius: 18px;
+  background-color: #303030;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+window.lock-screen .lock-a11y-item {
+  padding: 6px 12px;
+  border-radius: 12px;
+}
