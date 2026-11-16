@@ -58,6 +58,8 @@ and costs nothing per frame.
 | `compositor/src/shellplus-animations.c` | Window open/close/minimize and workspace-switch animations |
 | `compositor/src/shellplus-screenshot.c` | Screen/window captures, `org.gnome.Shell.Screenshot` (with its caller allowlist) and the private interface the screenshot UI uses |
 | `compositor/src/shellplus-lock.c` | Lock state and screen shield: `org.gnome.ScreenSaver`, logind Lock/PrepareForSleep, idle locking, unlock from the panel only |
+| `compositor/src/shellplus-session.c` | gnome-session integration: systemd readiness (`READY=1` once the panel is up), log out through `org.gnome.SessionManager` |
+| `compositor/src/shellplus-end-session.c` | `org.gnome.SessionManager.EndSessionDialog` on `org.gnome.Shell`, relayed to the panel |
 | `compositor/src/shellplus-overview.c` | The overview's compositor half: window list, window previews over shared memory, window actions, Super key |
 | `panel/src/panel.rs` | Bar window, translucent/solid switching, hot corner |
 | `panel/src/overview/` | Activities overview: window picker, workspaces and thumbnails, search entry, animations |
@@ -70,8 +72,10 @@ and costs nothing per frame.
 | `panel/src/system_dialog.rs` | Modal system dialog (dimmed backdrop, card, buttons) |
 | `panel/src/network_agent.rs` | NetworkManager secret agent (Wi-Fi, VPN and WireGuard password prompts) |
 | `panel/src/lock_screen/` | Lock screen UI (curtain, unlock prompt) and password checking (GDM reauthentication channel, else PAM) |
+| `panel/src/end_session.rs` | gnome-session's Log Out / Restart / Power Off prompt (countdown, busy apps, other users) |
 | `panel/src/polkit_agent.rs` | polkit authentication agent (administrator password prompt) |
 | `panel/src/keyboard.rs` | Keyboard layout indicator |
+| `compositor/src/shellplus-osk.c`, `panel/src/osk/` | On-screen keyboard (layouts from gnome-shell's data/osk-layouts) |
 | `panel/src/input_method.rs` | IBus candidate pop-up |
 | `panel/src/media/` | Media player controls (MPRIS) in the date menu |
 | `panel/src/calendar/` | Calendar events in the date menu (GNOME Shell's calendar server) |
@@ -190,6 +194,46 @@ Then, inside the VM, do one of these:
   The session script also starts the GNOME settings daemons (keyboard,
   power, night light, media keys…).
 
+  Or pick **GNOME Shell Plus (gnome-session)** in the same gear menu. That
+  runs the same compositor and panel the way GNOME runs GNOME Shell (see
+  below), adding autostart apps, the session manager's inhibitors and
+  GNOME's log out / restart / power off prompt. It needs `gnome-session`
+  (installed on Fedora Workstation). The plain **GNOME Shell Plus** entry
+  stays as it was; you can switch between them at every login.
+
+### The gnome-session session
+
+`make install` puts these next to the plain session:
+
+| File | What |
+| --- | --- |
+| `share/wayland-sessions/gnome-shell-plus-gnome-session.desktop` | The GDM entry; runs `gnome-session --session=gnome-shell-plus` |
+| `share/gnome-session/sessions/gnome-shell-plus.session` | The session's name for gnome-session |
+| `lib/systemd/user/gnome-session@gnome-shell-plus.target.d/gnome-shell-plus.session.conf` | What the session runs: `org.gnome.ShellPlus.service` and GNOME's `gnome-session-services.target` |
+| `lib/systemd/user/org.gnome.ShellPlus.service` | The compositor, as a `Type=notify` user service modelled on GNOME Shell's `org.gnome.Shell@.service` |
+
+Since GNOME 49, gnome-session only runs on systemd: it starts
+`gnome-session@gnome-shell-plus.target`, which pulls in the compositor
+service and `gnome-session-services.target` (the `gsd-*` daemons as their
+own units, plus GNOME's usual session services). The compositor tells
+systemd it's ready once the panel is on screen, which lets the session
+move on to the settings daemons and autostart apps. Mutter passes
+`WAYLAND_DISPLAY` to gnome-session, which exports it to D-Bus and systemd
+activation. If the compositor fails, the unit takes the session down
+(`gnome-session-shutdown.target`), as with GNOME Shell.
+
+When gnome-session runs, the power menu's Log Out, Restart… and Power Off…
+call `org.gnome.SessionManager` (`Logout(0)`, `Reboot()`, `Shutdown()`).
+gnome-session then checks inhibitors and calls
+`org.gnome.SessionManager.EndSessionDialog.Open` on `org.gnome.Shell`,
+and the panel shows GNOME's dialog (60-second countdown, apps with unsaved
+work and their reasons, other logged-in users). Without gnome-session the
+panel shows its own confirmation dialogs as before. `make shots
+SCENARIO=end_session` tests the dialog against a mocked gnome-session.
+
+To debug a login, see `journalctl --user -b -u org.gnome.ShellPlus.service`
+and `journalctl --user -b -t gnome-session-service`.
+
 You can develop on the Mac and just run in the VM (e.g. share the folder via
 UTM's VirtFS, or `git pull` inside the VM).
 
@@ -202,6 +246,11 @@ Done:
   Wi-Fi (network list), Wired, VPN (VPN and WireGuard profiles, panel
   icon), Hotspot (creates a WPA2 profile like GNOME Settings), Bluetooth (devices), Power Mode, Night Light,
   Dark Style, Airplane Mode, battery, power menu with confirmation dialogs
+- on-screen keyboard (org.gnome.desktop.a11y.applications
+  screen-keyboard-enabled): follows the XKB layout, number/email/url pages,
+  long-press accents, works on the lock screen
+- Alt-Tab window previews and per-app window thumbnails (Down / Alt+`);
+  maximize/fullscreen animations; collapsible notification stacks
 - notifications: `org.freedesktop.Notifications` and `org.gtk.Notifications`
   servers, banners (actions, critical, Do Not Disturb, per-app settings),
   grouped list in the date menu, unread indicator
@@ -209,6 +258,9 @@ Done:
   "Authentication required" dialog (WPA/WPA3 personal, WEP, 802.1X
   username/password, VPN passwords, WireGuard private keys); secured
   networks without a profile connect from the Wi-Fi menu
+- gnome-session support: a second session entry run by gnome-session
+  (systemd user units like GNOME 49+), with autostart apps, inhibitors and
+  GNOME's end-session dialog (`org.gnome.SessionManager.EndSessionDialog`)
 - polkit authentication agent: GNOME's "Authentication Required" dialog
   with the user's avatar and real name (AccountsService, else passwd), a
   user picker when several identities may authenticate, and retries; runs
@@ -288,10 +340,11 @@ Missing compared to GNOME Shell:
   the app grid can't be rearranged by drag and drop
 - overview: the window picker only covers the primary monitor; no
   window drag between monitors, no workspace thumbnail reordering
-- window thumbnails in the switcher, maximize animations
+- live (rather than snapshot) previews in the Alt-Tab switcher
+- on-screen keyboard: no emoji picker, suggestions or automatic show on touch
 - calendar: no world clocks, weather or week numbers; events come only
   from GNOME Shell's calendar server
-- keyring prompts (Wi-Fi secrets aren't saved to the keyring), on-screen keyboard
+- keyring prompts (Wi-Fi secrets aren't saved to the keyring)
 - IBus property menus (engine modes such as Chinese/English in the
   indicator menu), X11 input methods (XIM), per-window layouts, the
   Super+Space switcher pop-up (a tap switches straight away)
@@ -299,6 +352,9 @@ Missing compared to GNOME Shell:
 - multiple Wi-Fi/Bluetooth adapters; VPN plugins' own auth dialogs (VPN
   secrets get a plain password prompt), modem/mobile broadband
 - XML wallpaper slideshows (the first image is used)
+- end-session dialog: no "Install pending software updates" check box
+  (gnome-software offline updates), no Alt for "Boot Options", no avatars
+  for other users
 - panel only on the primary monitor (as in GNOME Shell)
 
 Notes:

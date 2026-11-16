@@ -2,6 +2,7 @@ mod app_grid;
 mod calendar;
 mod clock;
 mod debug;
+mod end_session;
 mod input_method;
 mod ipc;
 mod keyboard;
@@ -10,6 +11,7 @@ mod media;
 mod network_agent;
 mod notifications;
 mod osd;
+mod osk;
 mod overlay;
 mod overview;
 mod panel;
@@ -43,6 +45,7 @@ fn main() -> glib::ExitCode {
         osd::install(app, &client);
         switcher::install(app, &client);
         input_method::install(app);
+        osk::install(app, &client);
         screenshot::install(app, &client);
         screencast::install(&client);
         let overview = overview::install(app, &client);
@@ -63,6 +66,7 @@ fn main() -> glib::ExitCode {
         });
         network_agent::install(app);
         polkit_agent::install(app);
+        end_session::install(app);
         debug::install();
     });
     app.run()

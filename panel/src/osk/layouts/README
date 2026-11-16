@@ -1,0 +1,25 @@
+On-screen keyboard layouts
+==========================
+
+The *.json files in this directory are GNOME Shell's on-screen keyboard
+layouts, copied unchanged from gnome-shell's data/osk-layouts/
+(https://gitlab.gnome.org/GNOME/gnome-shell, main branch, commit
+7fcbec8013686024aca572b2bcdbc8102fdef18a):
+
+  us.json uk.json de.json fr.json es.json it.json
+  digits.json number.json phone.json email.json url.json
+
+GNOME Shell is distributed under the GNU General Public License, version 2
+or later (gnome-shell's COPYING), the same license as GNOME Shell Plus's
+panel (GPL-2.0-or-later). Copyright the GNOME Shell contributors.
+
+According to gnome-shell's history (commit 52a779e4, "data: Add keyboard
+layout JSON files"), the layouts were originally generated with
+cldr2json (git://repo.or.cz/cldr2json.git) from the Android keyboard
+layouts in the Unicode CLDR keyboard data
+(http://www.unicode.org/Public/cldr/latest/keyboards.zip), which is
+available under the Unicode License; they have since been edited by GNOME
+Shell contributors.
+
+To add a layout, copy it from gnome-shell's data/osk-layouts/ and list it
+in panel/src/osk/layout.rs.

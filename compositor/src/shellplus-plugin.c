@@ -20,12 +20,15 @@
 #include "shellplus-animations.h"
 #include "shellplus-background.h"
 #include "shellplus-dbus.h"
+#include "shellplus-end-session.h"
 #include "shellplus-input-method.h"
 #include "shellplus-input-sources.h"
 #include "shellplus-lock.h"
+#include "shellplus-osk.h"
 #include "shellplus-overview.h"
 #include "shellplus-panel-constraint.h"
 #include "shellplus-screenshot.h"
+#include "shellplus-session.h"
 #include "shellplus-shell-dbus.h"
 #include "shellplus-switcher.h"
 
@@ -37,6 +40,8 @@
 #define PANEL_RESPAWN_DELAY_MS   1000
 #define PANEL_MAX_QUICK_CRASHES  5
 #define PANEL_QUICK_CRASH_US     (10 * G_USEC_PER_SEC)
+/* Under systemd, report readiness even if the panel never shows up. */
+#define READY_FALLBACK_S         20
 /* Rows (in logical pixels, below the window's top edge) sampled for the
  * solid panel color. Skips the 1px highlight many header bars draw. */
 #define SAMPLE_Y                 2
@@ -52,6 +57,7 @@
 #define SCREENSHOT_TITLE "Screenshot"
 #define LOCK_TITLE "Lock Screen"
 #define IM_CANDIDATES_TITLE "Input Method Candidates"
+#define OSK_TITLE "Screen Keyboard"
 
 struct _ShellPlusPlugin
 {
@@ -66,6 +72,8 @@ struct _ShellPlusPlugin
   ShellPlusOverview *overview;
   ShellPlusScreenshot *screenshot;
   ShellPlusLock *lock;
+  ShellPlusEndSession *end_session;
+  ShellPlusOsk *osk;
   GSettings *mutter_settings;
 
   MetaWaylandClient *panel_client;
@@ -85,6 +93,7 @@ struct _ShellPlusPlugin
   gint64 panel_spawn_time;
   int panel_quick_crashes;
   guint panel_respawn_id;
+  guint ready_fallback_id;
 
   guint update_id;
   guint followup_update_id;
@@ -232,7 +241,7 @@ dbus_log_out (gpointer user_data)
 {
   MetaDisplay *display = get_display (user_data);
 
-  meta_context_terminate (meta_display_get_context (display));
+  shellplus_session_log_out (meta_display_get_context (display));
 }
 
 static void
@@ -552,7 +561,7 @@ update_struts (ShellPlusPlugin *self)
   MetaWorkspaceManager *wm = get_workspace_manager (self);
   GList *workspaces = meta_workspace_manager_get_workspaces (wm);
   GSList *struts = NULL;
-  MetaStrut strut;
+  MetaStrut strut, osk_strut;
   GList *l;
 
   if (self->panel_window && self->panel_height > 0 &&
@@ -562,6 +571,9 @@ update_struts (ShellPlusPlugin *self)
       strut.side = META_SIDE_TOP;
       struts = g_slist_prepend (NULL, &strut);
     }
+  /* The on-screen keyboard while it's shown. */
+  if (self->osk && shellplus_osk_get_strut (self->osk, &osk_strut))
+    struts = g_slist_prepend (struts, &osk_strut);
 
   for (l = workspaces; l; l = l->next)
     meta_workspace_set_builtin_struts (l->data, struts);
@@ -947,6 +959,12 @@ static gboolean
 setup_panel_client_window (ShellPlusPlugin *self,
                            MetaWindow      *window)
 {
+  if (g_strcmp0 (meta_window_get_title (window), OSK_TITLE) == 0)
+    {
+      shellplus_osk_setup_window (self->osk, window);
+      return TRUE;
+    }
+
   switch (role_for_window (window))
     {
     case SHELLPLUS_ROLE_TOP_BAR:
@@ -1092,6 +1110,26 @@ static const ShellPlusLockHandlers lock_handlers = {
   .get_panel_pid = get_panel_pid,
 };
 
+static gboolean
+osk_is_locked (gpointer user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  return self->lock && shellplus_lock_is_active (self->lock);
+}
+
+static void
+osk_struts_changed (gpointer user_data)
+{
+  update_struts (user_data);
+}
+
+static const ShellPlusOskHandlers osk_handlers = {
+  .get_panel_pid = get_panel_pid,
+  .is_locked = osk_is_locked,
+  .struts_changed = osk_struts_changed,
+};
+
 /* ------------------------------------------------------------------------ */
 /* Signal plumbing                                                          */
 
@@ -1199,6 +1237,17 @@ skip_animation (MetaWindow *window,
          (self->panel_client && meta_wayland_client_owns_window (self->panel_client, window));
 }
 
+static gboolean
+ready_fallback_cb (gpointer user_data)
+{
+  ShellPlusPlugin *self = user_data;
+
+  self->ready_fallback_id = 0;
+  g_warning ("The panel didn't show up; reporting the session ready anyway");
+  shellplus_session_notify_ready ();
+  return G_SOURCE_REMOVE;
+}
+
 static void
 shellplus_plugin_start (MetaPlugin *plugin)
 {
@@ -1236,6 +1285,8 @@ shellplus_plugin_start (MetaPlugin *plugin)
   self->overview = shellplus_overview_new (display, is_panel_client_window, self);
   self->screenshot = shellplus_screenshot_new (display, get_panel_pid, self);
   self->lock = shellplus_lock_new (display, self->shell_dbus, &lock_handlers, self);
+  self->end_session = shellplus_end_session_new (get_panel_pid, self);
+  self->osk = shellplus_osk_new (display, self->input_method, &osk_handlers, self);
 
   g_signal_connect_object (display, "window-created",
                            G_CALLBACK (on_window_created), self, 0);
@@ -1257,6 +1308,7 @@ shellplus_plugin_start (MetaPlugin *plugin)
   shellplus_animations_attach (plugin, skip_animation, self);
   update_backlight (self);
   spawn_panel (self);
+  self->ready_fallback_id = g_timeout_add_seconds (READY_FALLBACK_S, ready_fallback_cb, self);
   queue_workspace_check (self);
   queue_update (self);
 
@@ -1270,13 +1322,21 @@ shellplus_plugin_map (MetaPlugin      *plugin,
   ShellPlusPlugin *self = SHELLPLUS_PLUGIN (plugin);
 
   if (meta_window_actor_get_meta_window (actor) == self->panel_window)
-    sync_panel_geometry (self);
+    {
+      sync_panel_geometry (self);
+      /* Like GNOME Shell: ready (for systemd and gnome-session) once the
+       * shell is on screen. */
+      g_clear_handle_id (&self->ready_fallback_id, g_source_remove);
+      shellplus_session_notify_ready ();
+    }
   if (self->system_dialog &&
       meta_window_actor_get_meta_window (actor) == self->system_dialog)
     on_system_dialog_mapped (self);
   /* Above the other docks (top bar, overview). */
   if (meta_window_actor_get_meta_window (actor) == self->im_window)
     meta_window_raise (self->im_window);
+  if (self->osk)
+    shellplus_osk_window_mapped (self->osk, meta_window_actor_get_meta_window (actor));
   if (self->lock)
     shellplus_lock_window_mapped (self->lock, meta_window_actor_get_meta_window (actor));
   if (g_object_get_data (G_OBJECT (meta_window_actor_get_meta_window (actor)), "shellplus-overview"))
@@ -1308,7 +1368,10 @@ shellplus_plugin_finalize (GObject *object)
   g_clear_handle_id (&self->resample_id, g_source_remove);
   g_clear_handle_id (&self->workspace_check_id, g_source_remove);
   g_clear_handle_id (&self->panel_respawn_id, g_source_remove);
+  g_clear_handle_id (&self->ready_fallback_id, g_source_remove);
+  g_clear_pointer (&self->end_session, shellplus_end_session_free);
   g_clear_pointer (&self->screenshot, shellplus_screenshot_free);
+  g_clear_pointer (&self->osk, shellplus_osk_free);
   g_clear_pointer (&self->lock, shellplus_lock_free);
   g_clear_pointer (&self->overview, shellplus_overview_free);
   g_clear_pointer (&self->switcher, shellplus_switcher_free);

@@ -3,6 +3,8 @@ DESTDIR  ?=
 BUILDDIR ?= build
 # The lock screen's PAM service (used when GDM isn't running).
 PAMDIR   ?= /etc/pam.d
+# systemd user units for the gnome-session based session.
+SYSTEMDUSERUNITDIR ?= $(PREFIX)/lib/systemd/user
 
 DEV_IMAGE   := gnome-shell-plus-dev
 DOCKER_RUN  := docker run --rm -v "$(CURDIR)":/src \
@@ -29,13 +31,25 @@ install:
 	install -Dm755 data/gnome-shell-plus-session $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-session
 	install -Dm644 data/gnome-shell-plus.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop
 	install -Dm644 data/pam/gnome-shell-plus $(DESTDIR)$(PAMDIR)/gnome-shell-plus
+# "GNOME Shell Plus (gnome-session)": the same shell run by gnome-session.
+	install -Dm644 data/gnome-shell-plus-gnome-session.desktop $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus-gnome-session.desktop
+	install -Dm644 data/gnome-shell-plus.session $(DESTDIR)$(PREFIX)/share/gnome-session/sessions/gnome-shell-plus.session
+	install -d $(DESTDIR)$(SYSTEMDUSERUNITDIR)
+	sed 's|@bindir@|$(PREFIX)/bin|g' data/systemd/org.gnome.ShellPlus.service.in > $(DESTDIR)$(SYSTEMDUSERUNITDIR)/org.gnome.ShellPlus.service
+	chmod 644 $(DESTDIR)$(SYSTEMDUSERUNITDIR)/org.gnome.ShellPlus.service
+	install -Dm644 data/systemd/gnome-shell-plus.session.conf $(DESTDIR)$(SYSTEMDUSERUNITDIR)/gnome-session@gnome-shell-plus.target.d/gnome-shell-plus.session.conf
 
 uninstall:
 	rm -f $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus \
 	      $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-panel \
 	      $(DESTDIR)$(PREFIX)/bin/gnome-shell-plus-session \
 	      $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus.desktop \
-	      $(DESTDIR)$(PAMDIR)/gnome-shell-plus
+	      $(DESTDIR)$(PAMDIR)/gnome-shell-plus \
+	      $(DESTDIR)$(PREFIX)/share/wayland-sessions/gnome-shell-plus-gnome-session.desktop \
+	      $(DESTDIR)$(PREFIX)/share/gnome-session/sessions/gnome-shell-plus.session \
+	      $(DESTDIR)$(SYSTEMDUSERUNITDIR)/org.gnome.ShellPlus.service \
+	      $(DESTDIR)$(SYSTEMDUSERUNITDIR)/gnome-session@gnome-shell-plus.target.d/gnome-shell-plus.session.conf
+	-rmdir $(DESTDIR)$(SYSTEMDUSERUNITDIR)/gnome-session@gnome-shell-plus.target.d
 
 clean:
 	rm -rf $(BUILDDIR)

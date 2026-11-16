@@ -76,7 +76,15 @@ if [ "$SCENARIO" = screenshot ]; then
   export SHELLPLUS_SCREENSHOT_ALLOW_ALL=${SHELLPLUS_SCREENSHOT_ALLOW_ALL:-1}
 fi
 export SHELLPLUS_SCREENSHOT_ALLOW_ALL=${SHELLPLUS_SCREENSHOT_ALLOW_ALL:-}
-"$BUILD/gnome-shell-plus" --wayland --headless --no-x11 \
+# The end_session scenario also checks the compositor's systemd readiness
+# notification (sent under gnome-session): a fake notify socket logs it.
+NOTIFY=()
+if [ "$SCENARIO" = end_session ]; then
+  python3 /src/dev/notify-socket.py "$XDG_RUNTIME_DIR/notify.sock" "$OUT/notify.log" &
+  for _ in $(seq 50); do [ -S "$XDG_RUNTIME_DIR/notify.sock" ] && break; sleep 0.1; done
+  NOTIFY=(env NOTIFY_SOCKET="$XDG_RUNTIME_DIR/notify.sock")
+fi
+"${NOTIFY[@]}" "$BUILD/gnome-shell-plus" --wayland --headless --no-x11 \
   --wayland-display "$WAYLAND_DISPLAY" --virtual-monitor 1280x800 \
   >"$OUT/compositor.log" 2>&1 &
 trap 'kill %- 2>/dev/null || true' EXIT

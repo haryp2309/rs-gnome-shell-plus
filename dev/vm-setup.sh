@@ -16,7 +16,7 @@ cd "$(dirname "$0")/.."
 sudo dnf install -y gcc meson ninja-build cargo \
   mutter-devel gtk4-devel libadwaita-devel gsettings-desktop-schemas-devel \
   ibus-devel pulseaudio-libs-devel ibus ibus-libpinyin \
-  mutter-devkit
+  mutter-devkit gnome-session
 
 make
 sudo make install PREFIX=/usr
@@ -25,7 +25,9 @@ cat <<'EOF'
 
 Installed. Two ways to try it:
 
-  * Log out, click the gear on the login screen, pick "GNOME Shell Plus".
+  * Log out, click the gear on the login screen, pick "GNOME Shell Plus"
+    (or "GNOME Shell Plus (gnome-session)" to run it under gnome-session,
+    with autostart apps and GNOME's log out prompt).
 
   * Or, from the repo directory, in a window inside this session:
       SHELLPLUS_PANEL=$PWD/build/panel/release/gnome-shell-plus-panel \

@@ -1,0 +1,7 @@
+[Desktop Entry]
+Name=GNOME Shell Plus (gnome-session)
+Comment=GNOME Shell Plus run by the GNOME session manager: autostart apps, inhibitors and GNOME's log out prompt
+Exec=gnome-session --session=gnome-shell-plus
+TryExec=gnome-session
+Type=Application
+DesktopNames=GNOME

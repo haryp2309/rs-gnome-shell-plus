@@ -58,6 +58,8 @@ struct _ShellPlusInputMethod
   ShellPlusInputMethodNotify engines_changed;
   ShellPlusInputMethodNotify popup_changed;
   gpointer user_data;
+  ShellPlusInputMethodNotify focus_changed;  /* for the on-screen keyboard */
+  gpointer focus_data;
 
   IBusBus *bus;
   GCancellable *cancellable;       /* everything tied to one daemon connection */
@@ -71,6 +73,8 @@ struct _ShellPlusInputMethod
   guint hints;                     /* IBusInputHints */
   gboolean password;
   gboolean has_surrounding;
+  ClutterInputContentPurpose clutter_purpose;
+  ClutterInputContentHintFlags clutter_hints;
 
   /* Preedit shown in the client. */
   char *preedit;
@@ -689,6 +693,13 @@ connect_to_daemon (ShellPlusInputMethod *self)
 /* ------------------------------------------------------------------------ */
 /* ClutterInputMethod                                                       */
 
+static void
+notify_focus_changed (ShellPlusInputMethod *self)
+{
+  if (self->focus_changed)
+    self->focus_changed (self->focus_data);
+}
+
 static gboolean
 is_active (ShellPlusInputMethod *self)
 {
@@ -709,6 +720,7 @@ shellplus_input_method_focus_in (ClutterInputMethod *im,
       update_capabilities (self);
       ibus_input_context_focus_in (self->context);
     }
+  notify_focus_changed (self);
 }
 
 static void
@@ -718,6 +730,7 @@ shellplus_input_method_focus_out (ClutterInputMethod *im)
 
   self->has_focus = FALSE;
   self->has_cursor = FALSE;
+  notify_focus_changed (self);
   if (self->context)
     {
       ibus_input_context_set_content_type (self->context, IBUS_INPUT_PURPOSE_FREE_FORM,
@@ -756,6 +769,7 @@ shellplus_input_method_set_cursor_location (ClutterInputMethod    *im,
 
   self->cursor = *rect;
   self->has_cursor = TRUE;
+  notify_focus_changed (self);
   if (self->context)
     ibus_input_context_set_cursor_location (self->context, rect->origin.x, rect->origin.y,
                                             rect->size.width, rect->size.height);
@@ -810,6 +824,8 @@ shellplus_input_method_update_content_hints (ClutterInputMethod           *im,
     ibus_hints |= IBUS_INPUT_HINT_NO_EMOJI;
 
   self->hints = ibus_hints;
+  self->clutter_hints = hints;
+  notify_focus_changed (self);
   if (self->context)
     ibus_input_context_set_content_type (self->context, self->purpose, self->hints);
 }
@@ -836,7 +852,9 @@ shellplus_input_method_update_content_purpose (ClutterInputMethod         *im,
     }
 
   self->purpose = ibus_purpose;
+  self->clutter_purpose = purpose;
   self->password = purpose == CLUTTER_INPUT_CONTENT_PURPOSE_PASSWORD;
+  notify_focus_changed (self);
   if (self->context)
     {
       ibus_input_context_set_content_type (self->context, self->purpose, self->hints);
@@ -1001,6 +1019,27 @@ shellplus_input_method_set_engine (ShellPlusInputMethod *self,
   apply_engine (self);
 }
 
+void
+shellplus_input_method_set_focus_callback (ShellPlusInputMethod       *self,
+                                           ShellPlusInputMethodNotify  focus_changed,
+                                           gpointer                    user_data)
+{
+  self->focus_changed = focus_changed;
+  self->focus_data = user_data;
+}
+
+gboolean
+shellplus_input_method_get_focus (ShellPlusInputMethod         *self,
+                                  ClutterInputContentPurpose   *purpose,
+                                  ClutterInputContentHintFlags *hints)
+{
+  if (purpose)
+    *purpose = self->has_focus ? self->clutter_purpose : CLUTTER_INPUT_CONTENT_PURPOSE_NORMAL;
+  if (hints)
+    *hints = self->has_focus ? self->clutter_hints : 0;
+  return self->has_focus;
+}
+
 gboolean
 shellplus_input_method_get_cursor_rect (ShellPlusInputMethod *self,
                                         MtkRectangle         *rect)
@@ -1020,6 +1059,7 @@ shellplus_input_method_shutdown (ShellPlusInputMethod *self)
 {
   self->engines_changed = NULL;
   self->popup_changed = NULL;
+  self->focus_changed = NULL;
   g_clear_handle_id (&self->popup_idle_id, g_source_remove);
   if (self->cancellable)
     g_cancellable_cancel (self->cancellable);

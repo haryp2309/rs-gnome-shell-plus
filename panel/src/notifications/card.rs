@@ -8,7 +8,7 @@ use super::model::{relative_time, Notification};
 use super::Notifications;
 use gtk::prelude::*;
 use gtk::{glib, pango};
-use std::cell::Cell;
+use std::cell::{Cell, RefCell};
 use std::rc::{Rc, Weak};
 
 const IMAGE_SIZE: i32 = 40;
@@ -21,8 +21,13 @@ pub enum Style {
     InGroup,
 }
 
+/// Runs before the card's default action; returns true if it handled the
+/// click (the default action is then not run).
+pub type ClickHandler = Rc<dyn Fn() -> bool>;
+
 pub struct Card {
     pub button: gtk::Button,
+    on_click: Rc<RefCell<Option<ClickHandler>>>,
     content: gtk::Box,
     name: String,
     id: Rc<Cell<u32>>,
@@ -40,18 +45,31 @@ impl Card {
             .css_classes(["notification-card"])
             .build();
         let id = Rc::new(Cell::new(0));
+        let on_click: Rc<RefCell<Option<ClickHandler>>> = Rc::default();
         button.connect_clicked(glib::clone!(
             #[strong]
             id,
             #[strong]
             owner,
+            #[strong]
+            on_click,
             move |_| {
+                let handler = on_click.borrow().clone();
+                if handler.is_some_and(|handler| handler()) {
+                    return;
+                }
                 if let Some(owner) = owner.upgrade() {
                     owner.activate(id.get());
                 }
             }
         ));
-        Rc::new(Self { button, content, name: name.to_owned(), id, owner })
+        Rc::new(Self { button, on_click, content, name: name.to_owned(), id, owner })
+    }
+
+    /// Sets what clicking the card does before (or instead of) running the
+    /// default action, e.g. expanding a collapsed notification stack.
+    pub fn set_click_handler(&self, handler: Option<ClickHandler>) {
+        self.on_click.replace(handler);
     }
 
     /// (Re)fills the card with `notification`.

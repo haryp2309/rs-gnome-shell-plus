@@ -136,7 +136,8 @@ apps = os.path.expanduser("~/.local/share/applications")
 os.makedirs(apps, exist_ok=True)
 for app_id, name, icon in [(CALENDAR, "Calendar", "x-office-calendar"),
                            ("org.example.Files", "Files", "system-file-manager"),
-                           ("org.example.Muted", "Muted App", "dialog-error")]:
+                           ("org.example.Muted", "Muted App", "dialog-error"),
+                           ("org.example.Stack", "Stacker", "mail-unread")]:
     with open(f"{apps}/{app_id}.desktop", "w") as f:
         f.write(f"[Desktop Entry]\nType=Application\nName={name}\nIcon={icon}\nExec=true\n")
 pump(1.5)
@@ -348,6 +349,65 @@ pump(0.5)
 dnd = subprocess.run(["gsettings", "get", "org.gnome.desktop.notifications", "show-banners"],
                      capture_output=True, text=True).stdout.strip()
 check(dnd == "true", f"Do Not Disturb switch writes show-banners ({dnd})")
+
+# --- collapsible stacks ----------------------------------------------------
+
+STACK = "org.example.Stack"
+s.panel("CloseMenus")
+s.gsettings("org.gnome.desktop.notifications", "show-banners", "false")
+stacked = [notify("-a", "Stacker", "-h", f"string:desktop-entry:{STACK}",
+                  f"Stacked message {i + 1}", f"Message number {i + 1} of three")
+           for i in range(3)]
+s.gsettings("org.gnome.desktop.notifications", "show-banners", "true")
+activate("clock-button", settle=1.0)
+
+
+def shown(name):
+    info = s.inspect(name)
+    return bool(info and info["mapped"])
+
+
+def stack_collapsed():
+    info = s.inspect(f"notification-stack-{STACK}")
+    return bool(info) and "collapsed" in info["classes"]
+
+
+count = s.inspect(f"notification-group-count-{STACK}") or {}
+check(stack_collapsed(), "three notifications from one app are a collapsed stack")
+check(count.get("mapped") and count.get("text") == "3", f"stack shows its count ({count.get('text')})")
+check(shown(f"notification-{stacked[2]}"), "the newest notification is on top")
+check(not shown(f"notification-{stacked[0]}") and not shown(f"notification-{stacked[1]}"),
+      "the older ones are folded behind it")
+check(not shown(f"notification-group-collapse-{STACK}"), "no collapse button while collapsed")
+s.shot("14-stack-collapsed")
+
+activate(f"notification-{stacked[2]}", settle=0.8)
+check(listed(stacked[2]) and not any(c[0] == stacked[2] for c in closed),
+      "clicking the stack expands it instead of running the notification")
+check(not stack_collapsed(), "stack expanded")
+check(all(shown(f"notification-{nid}") for nid in stacked), "expanded stack shows all three")
+check(shown(f"notification-group-collapse-{STACK}") and not shown(f"notification-group-count-{STACK}"),
+      "collapse button replaces the count")
+s.shot("15-stack-expanded")
+
+activate(f"notification-{stacked[1]}-close", settle=0.8)
+check(closed_with(stacked[1], 2), "closing a notification inside the stack dismisses it (reason 2)")
+check(not listed(stacked[1]) and listed(stacked[0]) and listed(stacked[2]),
+      "only that notification leaves the stack")
+check(not stack_collapsed() and shown(f"notification-{stacked[0]}"), "stack stays expanded")
+
+activate(f"notification-group-collapse-{STACK}", settle=0.8)
+check(stack_collapsed(), "the collapse button folds the stack")
+check(not shown(f"notification-{stacked[0]}"), "folded notification hidden again")
+count = s.inspect(f"notification-group-count-{STACK}") or {}
+check(count.get("text") == "2", f"count updated ({count.get('text')})")
+s.shot("16-stack-collapsed-again")
+
+# The default action still runs on an expanded stack's cards.
+activate(f"notification-{stacked[2]}", settle=0.8)
+activate(f"notification-{stacked[2]}", settle=0.8)
+check(closed_with(stacked[2], 2), "clicking a card of the expanded stack runs it")
+activate("clock-button", settle=1.0)
 
 # --- Clear ------------------------------------------------------------------
 

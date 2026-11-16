@@ -271,7 +271,13 @@ impl Ui {
         let dim = gtk::Box::builder().css_classes(["lock-dim"]).build();
         let root = gtk::Overlay::builder().child(&wallpaper).build();
         root.add_overlay(&dim);
-        root.add_overlay(&stack);
+        // The screen keyboard (when enabled) takes the bottom of the
+        // window; the prompt stays centered above it.
+        let column = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        stack.set_vexpand(true);
+        column.append(&stack);
+        column.append(&crate::osk::lock_keyboard(&password, &lock.client));
+        root.add_overlay(&column);
         // GNOME's panel stays up over both the curtain and the prompt.
         let status_bar = StatusBar::new(&lock.indicators);
         status_bar.update(&lock.client.state());

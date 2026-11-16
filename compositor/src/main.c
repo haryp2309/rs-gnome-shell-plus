@@ -2,6 +2,7 @@
 #include <meta/meta-context.h>
 
 #include "shellplus-plugin.h"
+#include "shellplus-session.h"
 
 int
 main (int    argc,
@@ -10,6 +11,7 @@ main (int    argc,
   g_autoptr (MetaContext) context = NULL;
   g_autoptr (GError) error = NULL;
 
+  shellplus_session_init ();
   context = meta_create_context ("GNOME Shell Plus");
 
   if (!meta_context_configure (context, &argc, &argv, &error))

@@ -25,10 +25,30 @@
  *   the selection. Arrow keys, Escape and the modifier release arrive at the
  *   grab actor.
  *
- * The panel draws the pop-up from the SwitcherShow / SwitcherSelect /
- * SwitcherHide D-Bus signals; see panel/src/switcher.rs. */
+ * - In the applications mode, like GNOME's AppSwitcherPopup, Down or
+ *   switch-group (Alt+`) shows the selected app's windows as thumbnails
+ *   under it and moves into them (Left/Right or Alt+` / Alt+~ walk them, Up
+ *   goes back to the apps); resting on an app with several windows for
+ *   THUMBNAIL_POPUP_MS shows them without moving into them.
+ *
+ * The panel draws the pop-up from the D-Bus signals below; see
+ * panel/src/switcher.rs. It fetches window previews by id through
+ * org.gnome.ShellPlus.Overview GetPreview (shellplus-overview.c).
+ *
+ *   SwitcherShow (s mode, a(ssia(ts)) items, i selected)
+ *       mode "applications" or "windows"; per item: app id, title (of the
+ *       most recent window), number of windows, and its windows (id, title)
+ *       most recently used first
+ *   SwitcherSelect (i item, i window)
+ *       window: index into the item's windows of the selected thumbnail,
+ *       -1 if the selection is on the item itself
+ *   SwitcherThumbnails (i item)
+ *       show the item's window thumbnails (-1: hide them)
+ *   SwitcherHide () */
 
 #define POPUP_DELAY_MS 150
+/* GNOME Shell's THUMBNAIL_POPUP_TIME. */
+#define THUMBNAIL_POPUP_MS 500
 /* Title of the panel's pop-up window (panel/src/switcher.rs). */
 #define SWITCHER_TITLE "Switcher"
 
@@ -61,6 +81,9 @@ struct _ShellPlusSwitcher
   GPtrArray *items;   /* Item */
   GPtrArray *watched; /* MetaWindow whose "unmanaged" we listen to */
   int selected;
+  int thumbnails;     /* item whose thumbnails are up, or -1 */
+  int window;         /* selected thumbnail, or -1 (the item is selected) */
+  guint thumbnail_id; /* THUMBNAIL_POPUP_MS timeout */
   ClutterModifierType modifier;
   guint show_id;
   gboolean shown;
@@ -121,24 +144,59 @@ active_workspace (ShellPlusSwitcher *self)
 /* Talking to the panel                                                     */
 
 static void
+emit_select (ShellPlusSwitcher *self)
+{
+  if (self->shown)
+    shellplus_dbus_emit (self->dbus, "SwitcherSelect",
+                         g_variant_new ("(ii)", self->selected, self->window));
+}
+
+static void
+emit_thumbnails (ShellPlusSwitcher *self)
+{
+  if (self->shown)
+    shellplus_dbus_emit (self->dbus, "SwitcherThumbnails",
+                         g_variant_new ("(i)", self->thumbnails));
+}
+
+static void
 emit_show (ShellPlusSwitcher *self)
 {
   GVariantBuilder builder;
 
-  g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssi)"));
+  g_variant_builder_init (&builder, G_VARIANT_TYPE ("a(ssia(ts))"));
   for (guint i = 0; i < self->items->len; i++)
     {
       Item *item = g_ptr_array_index (self->items, i);
 
-      g_variant_builder_add (&builder, "(ssi)", item->app_id, item->title,
-                             (int) item->windows->len);
+      g_variant_builder_open (&builder, G_VARIANT_TYPE ("(ssia(ts))"));
+      g_variant_builder_add (&builder, "s", item->app_id);
+      g_variant_builder_add (&builder, "s", item->title);
+      g_variant_builder_add (&builder, "i", (int) item->windows->len);
+      g_variant_builder_open (&builder, G_VARIANT_TYPE ("a(ts)"));
+      for (guint j = 0; j < item->windows->len; j++)
+        {
+          MetaWindow *window = g_ptr_array_index (item->windows, j);
+          const char *title = meta_window_get_title (window);
+
+          g_variant_builder_add (&builder, "(ts)", meta_window_get_id (window),
+                                 title ? title : "");
+        }
+      g_variant_builder_close (&builder);
+      g_variant_builder_close (&builder);
     }
 
   shellplus_dbus_emit (self->dbus, "SwitcherShow",
-                       g_variant_new ("(sa(ssi)i)",
+                       g_variant_new ("(sa(ssia(ts))i)",
                                       self->mode == MODE_APPLICATIONS ? "applications" : "windows",
                                       &builder, self->selected));
   self->shown = TRUE;
+
+  if (self->thumbnails >= 0)
+    {
+      emit_thumbnails (self);
+      emit_select (self);
+    }
 }
 
 static gboolean
@@ -225,6 +283,9 @@ static void
 teardown (ShellPlusSwitcher *self)
 {
   g_clear_handle_id (&self->show_id, g_source_remove);
+  g_clear_handle_id (&self->thumbnail_id, g_source_remove);
+  self->thumbnails = -1;
+  self->window = -1;
   if (self->shown)
     shellplus_dbus_emit (self->dbus, "SwitcherHide", g_variant_new ("()"));
   self->shown = FALSE;
@@ -262,8 +323,9 @@ finish (ShellPlusSwitcher *self,
   if (self->selected >= 0 && self->selected < (int) self->items->len)
     {
       Item *item = g_ptr_array_index (self->items, self->selected);
+      int index = self->window >= 0 && self->window < (int) item->windows->len ? self->window : 0;
 
-      window = g_ptr_array_index (item->windows, 0);
+      window = g_ptr_array_index (item->windows, index);
     }
 
   if (!time)
@@ -291,19 +353,92 @@ on_window_unmanaged (MetaWindow        *window,
 /* ------------------------------------------------------------------------ */
 /* Selection                                                                */
 
+static int
+wrap (int index,
+      int n)
+{
+  return n > 0 ? ((index % n) + n) % n : 0;
+}
+
+static gboolean
+thumbnail_popup_cb (gpointer user_data)
+{
+  ShellPlusSwitcher *self = user_data;
+
+  self->thumbnail_id = 0;
+  self->thumbnails = self->selected;
+  emit_thumbnails (self);
+  return G_SOURCE_REMOVE;
+}
+
+/* Like AppSwitcherPopup._select(): selects item @index and, if @window is
+ * not -1, that window's thumbnail. */
 static void
-select_index (ShellPlusSwitcher *self,
-              int                index)
+select_item_window (ShellPlusSwitcher *self,
+                    int                index,
+                    int                window)
 {
   int n = self->items->len;
+  Item *item;
 
   if (n == 0)
     return;
 
-  self->selected = ((index % n) + n) % n;
-  if (self->shown)
-    shellplus_dbus_emit (self->dbus, "SwitcherSelect",
-                         g_variant_new ("(i)", self->selected));
+  index = wrap (index, n);
+  item = g_ptr_array_index (self->items, index);
+
+  if (self->thumbnails >= 0 && (index != self->thumbnails || window < 0))
+    {
+      self->thumbnails = -1;
+      emit_thumbnails (self);
+    }
+  g_clear_handle_id (&self->thumbnail_id, g_source_remove);
+
+  self->selected = index;
+  self->window = window >= 0 ? wrap (window, item->windows->len) : -1;
+
+  if (self->window >= 0)
+    {
+      if (self->thumbnails < 0)
+        {
+          self->thumbnails = index;
+          emit_thumbnails (self);
+        }
+    }
+  else if (self->mode == MODE_APPLICATIONS && item->windows->len > 1)
+    {
+      self->thumbnail_id = g_timeout_add (THUMBNAIL_POPUP_MS, thumbnail_popup_cb, self);
+    }
+
+  emit_select (self);
+}
+
+static void
+select_index (ShellPlusSwitcher *self,
+              int                index)
+{
+  select_item_window (self, index, -1);
+}
+
+/* Moves through the selected app's windows (switch-group, or Left/Right
+ * in the thumbnails). Starts at the first one if none is selected yet. */
+static void
+select_window (ShellPlusSwitcher *self,
+               int                delta)
+{
+  Item *item;
+  int n, window;
+
+  if (self->selected < 0 || self->selected >= (int) self->items->len)
+    return;
+  item = g_ptr_array_index (self->items, self->selected);
+  n = item->windows->len;
+
+  if (self->window < 0)
+    window = delta >= 0 ? 0 : n - 1;
+  else
+    window = wrap (self->window + delta, n);
+  select_item_window (self, self->selected, window);
 }
 
 static void
@@ -312,10 +447,7 @@ initial_selection (ShellPlusSwitcher *self,
 {
   int n = self->items->len;
 
-  if (backward)
-    self->selected = n - 1;
-  else
-    self->selected = n > 1 ? 1 : 0;
+  select_index (self, backward ? n - 1 : (n > 1 ? 1 : 0));
 }
 
 /* Like GNOME Shell's primaryModifier(): the highest modifier bit of the
@@ -353,10 +485,53 @@ on_key_press (ClutterActor      *actor,
               ClutterEvent      *event,
               ShellPlusSwitcher *self)
 {
+  guint keysym = clutter_event_get_key_symbol (event);
+
   if (!self->active)
     return CLUTTER_EVENT_PROPAGATE;
 
-  switch (clutter_event_get_key_symbol (event))
+  if (self->mode == MODE_APPLICATIONS)
+    {
+      gboolean in_thumbnails = self->window >= 0;
+
+      switch (keysym)
+        {
+        case CLUTTER_KEY_Down:
+        case CLUTTER_KEY_KP_Down:
+          if (!in_thumbnails)
+            select_item_window (self, self->selected, 0);
+          return CLUTTER_EVENT_STOP;
+        case CLUTTER_KEY_Up:
+        case CLUTTER_KEY_KP_Up:
+          if (in_thumbnails)
+            {
+              select_index (self, self->selected);
+              /* Back on the app, the thumbnails don't pop up again. */
+              g_clear_handle_id (&self->thumbnail_id, g_source_remove);
+            }
+          return CLUTTER_EVENT_STOP;
+        case CLUTTER_KEY_Left:
+        case CLUTTER_KEY_KP_Left:
+          if (in_thumbnails)
+            {
+              select_window (self, -1);
+              return CLUTTER_EVENT_STOP;
+            }
+          break;
+        case CLUTTER_KEY_Right:
+        case CLUTTER_KEY_KP_Right:
+          if (in_thumbnails)
+            {
+              select_window (self, 1);
+              return CLUTTER_EVENT_STOP;
+            }
+          break;
+        default:
+          break;
+        }
+    }
+
+  switch (keysym)
     {
     case CLUTTER_KEY_Escape:
       cancel (self);
@@ -510,7 +685,12 @@ on_switch (MetaDisplay        *display,
 
   if (self->active)
     {
-      select_index (self, self->selected + (backward ? -1 : 1));
+      /* In the applications mode, switch-group walks the selected app's
+       * windows; anything else moves between the items. */
+      if (self->mode == MODE_APPLICATIONS && g_str_has_prefix (name, "switch-group"))
+        select_window (self, backward ? -1 : 1);
+      else
+        select_index (self, self->selected + (backward ? -1 : 1));
       return;
     }
 
@@ -562,6 +742,8 @@ shellplus_switcher_new (MetaDisplay             *display,
   self->filter = filter;
   self->user_data = user_data;
   self->items = g_ptr_array_new_with_free_func ((GDestroyNotify) item_free);
+  self->thumbnails = -1;
+  self->window = -1;
   self->watched = g_ptr_array_new_with_free_func (g_object_unref);
 
   /* An invisible, stage-sized actor that holds the grab while the

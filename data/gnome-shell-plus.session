@@ -1,0 +1,8 @@
+# gnome-session's session file for the "GNOME Shell Plus (gnome-session)"
+# entry (gnome-shell-plus-gnome-session.desktop). Since GNOME 49 the
+# components are systemd user units, not listed here: gnome-session starts
+# gnome-session@gnome-shell-plus.target, and the drop-in
+# systemd/gnome-shell-plus.session.conf adds the compositor and GNOME's
+# session services to it (as gnome.session.conf does for GNOME Shell).
+[GNOME Session]
+Name=GNOME Shell Plus

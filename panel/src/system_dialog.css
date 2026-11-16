@@ -62,3 +62,17 @@ window.system-dialog {
   background-color: alpha(currentColor, 0.1);
   color: inherit;
 }
+
+/* Lists in the end-session dialog (busy apps, other users), like GNOME's
+ * .dialog-list. */
+.system-dialog-card .end-session-list {
+  margin-top: 6px;
+}
+
+.system-dialog-card .end-session-list .list-title {
+  font-weight: bold;
+}
+
+.system-dialog-card .end-session-item .title {
+  font-weight: bold;
+}

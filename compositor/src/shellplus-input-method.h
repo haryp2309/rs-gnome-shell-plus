@@ -38,6 +38,18 @@ IBusEngineDesc *shellplus_input_method_get_engine (ShellPlusInputMethod *self,
 void shellplus_input_method_set_engine (ShellPlusInputMethod *self,
                                         const char           *name);
 
+/* For the on-screen keyboard: @focus_changed runs when a text field gets
+ * or loses the input focus, its content purpose or hints change, or the
+ * text cursor moves. */
+void shellplus_input_method_set_focus_callback (ShellPlusInputMethod       *self,
+                                                ShellPlusInputMethodNotify  focus_changed,
+                                                gpointer                    user_data);
+
+/* Whether a text field has the input focus, and its purpose and hints. */
+gboolean shellplus_input_method_get_focus (ShellPlusInputMethod         *self,
+                                           ClutterInputContentPurpose   *purpose,
+                                           ClutterInputContentHintFlags *hints);
+
 /* The text cursor of the focused client in stage coordinates; FALSE if
  * there is none. */
 gboolean shellplus_input_method_get_cursor_rect (ShellPlusInputMethod *self,

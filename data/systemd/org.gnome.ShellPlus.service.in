@@ -1,0 +1,33 @@
+# The compositor (and, through it, the panel) under gnome-session; modelled
+# on GNOME Shell's org.gnome.Shell@.service. Started by
+# gnome-session@gnome-shell-plus.target (see gnome-shell-plus.session.conf).
+[Unit]
+Description=GNOME Shell Plus
+# Without the shell the session is over.
+OnFailure=gnome-session-shutdown.target
+OnFailureJobMode=replace-irreversibly
+CollectMode=inactive-or-failed
+RefuseManualStart=on
+RefuseManualStop=on
+
+After=gnome-session-manager.target
+
+Requisite=gnome-session-initialized.target
+PartOf=gnome-session-initialized.target
+Before=gnome-session-initialized.target
+
+AssertEnvironment=XDG_SESSION_TYPE=wayland
+
+[Service]
+Slice=session.slice
+# The compositor sends READY=1 once the panel is on screen
+# (compositor/src/shellplus-session.c).
+Type=notify
+NotifyAccess=main
+ExecStart=@bindir@/gnome-shell-plus --wayland --display-server
+# Mutter exports WAYLAND_DISPLAY through gnome-session; don't leave it behind.
+ExecStopPost=-systemctl --user unset-environment WAYLAND_DISPLAY DISPLAY XAUTHORITY
+Restart=no
+# Kill any stubborn child processes after this long
+TimeoutStopSec=5
+OOMScoreAdjust=-1000

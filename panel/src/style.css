@@ -291,3 +291,30 @@ button.menu-item:hover {
 .switcher-arrow {
   color: rgba(255, 255, 255, 0.8);
 }
+
+/* The selected app while one of its thumbnails is selected. */
+.switcher-popup .switcher-item.outlined {
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+.switcher-preview {
+  border-radius: 6px;
+}
+
+.switcher-window-icon {
+  margin: -6px;
+  -gtk-icon-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+}
+
+/* The app's windows, in a second pop-up right under the first. */
+.switcher-thumbnails {
+  margin-top: 0;
+}
+
+.switcher-item.thumbnail {
+  padding: 12px 12px 6px;
+}
+
+.switcher-thumbnail-title {
+  font-size: smaller;
+}

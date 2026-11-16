@@ -113,6 +113,7 @@ button.notification-card.notification-banner:hover {
 
 /* Date menu list */
 .notification-group-header {
+  min-height: 24px;
   margin: 0 4px;
   font-size: smaller;
 }
@@ -123,6 +124,52 @@ button.notification-card.notification-banner:hover {
 
 .notification-list {
   margin-right: 2px;
+}
+
+/* Collapsed stacks (GNOME 46+): the newest card with the next ones peeking
+   out under it, narrower and fainter the deeper they are. */
+.notification-stack-peek {
+  min-height: 8px;
+  border-radius: 0 0 12px 12px;
+  background-color: alpha(currentColor, 0.11);
+}
+
+.notification-stack-peek.depth-1 {
+  margin: 0 8px;
+}
+
+.notification-stack-peek.depth-2 {
+  min-height: 7px;
+  margin: 0 16px;
+  background-color: alpha(currentColor, 0.06);
+}
+
+.notification-stack.collapsed button.notification-card {
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+}
+
+.notification-group-header .notification-count {
+  min-width: 12px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: bold;
+  background-color: alpha(currentColor, 0.1);
+}
+
+.notification-group-header button.collapse {
+  min-width: 22px;
+  min-height: 22px;
+  padding: 0;
+  background-color: alpha(currentColor, 0.1);
+}
+
+.notification-group-header button.collapse:hover {
+  background-color: alpha(currentColor, 0.18);
+}
+
+.notification-group-header button.collapse image {
+  -gtk-icon-size: 12px;
 }
 
 .notification-bottom-row button.clear-button {

@@ -1,5 +1,6 @@
-"""Window animations: map, destroy, modal dialogs, minimize/unminimize and
-the workspace switch slide, with and without enable-animations.
+"""Window animations: map, destroy, modal dialogs, minimize/unminimize,
+maximize/unmaximize/fullscreen size changes and the workspace switch slide,
+with and without enable-animations.
 
 Uses an undecorated, solid-colored GTK4 test window so screenshots can be
 checked by color, and the compositor's g_debug log (G_MESSAGES_DEBUG=shellplus)
@@ -51,6 +52,14 @@ def command(source, condition):
         window.minimize()
     elif line == "present":
         window.present()
+    elif line == "maximize":
+        window.maximize()
+    elif line == "unmaximize":
+        window.unmaximize()
+    elif line == "fullscreen":
+        window.fullscreen()
+    elif line == "unfullscreen":
+        window.unfullscreen()
     elif line == "dialog":
         dialog = Gtk.Window(title=title + " Dialog", transient_for=window, modal=True,
                             decorated=False, default_width=200, default_height=120)
@@ -136,7 +145,7 @@ def settled(line_match, what):
 
 # --- screenshots ------------------------------------------------------------
 
-def find_color(path, color, step=2, tolerance=60, faded=False):
+def find_color(path, color, step=2, tolerance=60, faded=False, min_y=0):
     """Bounding box (x0, y0, x1, y1) and pixel count of @color in a PNG.
 
     With faded, also matches the color half-blended into the (blue)
@@ -148,7 +157,7 @@ def find_color(path, color, step=2, tolerance=60, faded=False):
     x0 = y0 = 10 ** 9
     x1 = y1 = -1
     count = 0
-    for y in range(0, pb.get_height(), step):
+    for y in range(min_y, pb.get_height(), step):
         row = y * stride
         for x in range(0, pb.get_width(), step):
             i = row + x * n
@@ -211,10 +220,11 @@ def record(action, seconds):
     return sorted(glob.glob(f"{tmp}/frame*.png"))
 
 
-def save_mid(frames, name, color, predicate):
-    """Saves the first frame whose (bbox, count) of @color satisfies predicate."""
+def save_mid(frames, name, color, predicate, min_y=0):
+    """Saves the first frame whose (bbox, count) of @color satisfies predicate
+    (looking only below min_y)."""
     for frame in frames:
-        bbox, count = find_color(frame, color, step=4, faded=True)
+        bbox, count = find_color(frame, color, step=4, faded=True, min_y=min_y)
         if predicate(bbox, count):
             path = os.path.join(out, f"{name}.png")
             shutil.copy(frame, path)
@@ -363,6 +373,68 @@ check(bbox_matches(bbox, rect), f"window back in place after switching back: {bb
 save_mid(frames, "07-switch-back-mid", MAGENTA,
          lambda b, n: n and b[0] > rect[0] + 40)
 
+# --- maximize / unmaximize / fullscreen --------------------------------------
+W, H = s.state()["monitor"][2:]
+
+
+def size_change(command, name, predicate):
+    log_mark()
+    frames = record(lambda: a.send(command), 1.0 + 0.15 * SLOW)
+    m = wait_log(done_line("size-change", "Anim A"))
+    check(m is not None, f"{command} size change completes")
+    prepared = re.search(r"size-change prepared 'Anim A' \((\w+)\)", log_since())
+    check(prepared is not None and prepared.group(1) == command,
+          f"{command}: snapshot taken ({prepared and prepared.group(0)})")
+    started = re.search(r"animation: size-change started 'Anim A'[^\n]*", log_since())
+    check(started is not None, f"{command} is animated")
+    check(len(re.findall(r"size-change (completed|interrupted|skipped) 'Anim A'", log_since())) == 1,
+          f"{command}: completed exactly once")
+    final = settled(m, command)["rect"] if m else (0, 0, 0, 0)
+    time.sleep(0.5)
+    bbox, _ = find_color(s.shot(name), MAGENTA)
+    if bbox and final[1] > 0 and bbox[1] == 0:
+        # The solid top bar takes the maximized window's color.
+        bbox = (bbox[0], int(final[1]), bbox[2], bbox[3])
+    check(bbox_matches(bbox, final), f"{command}: window drawn at its new place: {bbox} vs {final}")
+    # Below the top bar, which turns the maximized window's color.
+    mid = save_mid(frames, name + "-mid", MAGENTA, predicate, min_y=40)
+    check(mid is not None, f"captured the {command} mid-animation ({len(frames)} frames)")
+    return final, bbox
+
+
+maxed, _ = size_change("maximize", "07a-maximized",
+                       lambda b, n: n and full_w + 40 < b[2] - b[0] < W - 40)
+check(maxed[0] == 0 and maxed[2] == W and maxed[1] > 0 and maxed[1] + maxed[3] == H,
+      f"maximized to the work area below the top bar: {maxed}")
+check(s.state()["mode"] == "solid", f"top bar solid over the maximized window ({s.state()['mode']})")
+back, _ = size_change("unmaximize", "07b-unmaximized",
+                      lambda b, n: n and full_w + 40 < b[2] - b[0] < W - 40)
+check([round(v) for v in back[2:]] == [round(v) for v in rect[2:]],
+      f"unmaximized back to its size: {back} vs {rect}")
+full, _ = size_change("fullscreen", "07c-fullscreen",
+                      lambda b, n: n and full_w + 40 < b[2] - b[0] < W - 40)
+check(list(full) == [0, 0, W, H], f"fullscreen covers the monitor: {full}")
+size_change("unfullscreen", "07d-unfullscreen",
+            lambda b, n: n and full_w + 40 < b[2] - b[0] < W - 40)
+
+# Unmaximizing while the maximize is still animating ends the first one.
+log_mark()
+a.send("maximize")
+time.sleep(0.05 * SLOW)
+a.send("unmaximize")
+time.sleep(1.0 + 0.3 * SLOW)
+ends = re.findall(r"size-change (completed|interrupted|skipped) 'Anim A'", log_since())
+prepared = re.findall(r"size-change prepared 'Anim A'", log_since())
+check(len(ends) == len(prepared) and len(prepared) >= 1,
+      f"interrupted size changes each complete once ({prepared} / {ends})")
+m = re.findall(done_line("size-change", "Anim A"), log_since())
+if m:
+    settled(m[-1], "interrupted size change")
+time.sleep(0.5)
+bbox, _ = find_color(s.shot("07e-max-unmax"), MAGENTA)
+check(bbox is not None and abs((bbox[2] - bbox[0]) - rect[2]) <= 4,
+      f"maximize + unmaximize ends unmaximized: {bbox}")
+
 # --- destroy ----------------------------------------------------------------
 log_mark()
 frames = record(lambda: a.send("close"), 1.0 + 0.15 * SLOW)
@@ -405,6 +477,18 @@ check(wait_log(r"animation: unminimize not animated 'Anim B'") is not None, "unm
 time.sleep(0.5)
 check(find_color(s.shot("12-noanim-unminimized"), MAGENTA)[0] == bbox_b,
       "unminimized without animation, same place")
+b.send("maximize")
+check(wait_log(r"animation: size-change not animated 'Anim B'") is not None,
+      "maximize not animated")
+time.sleep(0.5)
+bbox, _ = find_color(s.shot("12b-noanim-maximized"), MAGENTA)
+check(bbox is not None and bbox[2] - bbox[0] >= W - 4, f"maximized without animation: {bbox}")
+b.send("unmaximize")
+check(wait_log(r"size-change not animated 'Anim B'[\s\S]*size-change not animated 'Anim B'")
+      is not None, "unmaximize not animated")
+time.sleep(0.5)
+check(find_color(s.shot("12c-noanim-unmaximized"), MAGENTA)[0] == bbox_b,
+      "unmaximized without animation, same place")
 activate_workspace(1)
 check(wait_log(r"switch-workspace 0 -> 1 not animated") is not None, "switch not animated")
 time.sleep(0.5)

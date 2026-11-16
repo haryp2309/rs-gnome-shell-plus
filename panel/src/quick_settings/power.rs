@@ -1,6 +1,9 @@
 //! Power and system: the top row (battery, Settings, power submenu), the
 //! brightness slider and the Power Mode toggle. Talks to UPower, logind,
 //! gnome-session, GDM and power-profiles-daemon like GNOME Shell does.
+//! Under gnome-session, Log Out / Restart / Power Off ask gnome-session,
+//! whose end-session dialog is in panel/src/end_session.rs; otherwise
+//! Restart / Power Off show their own countdown dialog here.
 
 use super::widgets::{MenuItem, QuickMenu, QuickSlider, QuickToggle};
 use super::Ctx;
@@ -208,13 +211,26 @@ fn power_menu(ctx: &Rc<Ctx>) -> gtk::Revealer {
     restart.connect_clicked(glib::clone!(
         #[strong]
         ctx,
-        move |_| confirm(&ctx, "qs-confirm-restart", "Restart", "restart", "_Restart", "Reboot")
+        move |_| match session_manager() {
+            // gnome-session shows its own prompt (end_session.rs).
+            Some(bus) => {
+                ctx.popover.popdown();
+                call_session_manager(&bus, "Reboot", None);
+            }
+            None => confirm(&ctx, "qs-confirm-restart", "Restart", "restart", "_Restart", "Reboot"),
+        }
     ));
     let power_off = MenuItem::new("qs-power-off", "Power Off…");
     power_off.connect_clicked(glib::clone!(
         #[strong]
         ctx,
-        move |_| confirm(&ctx, "qs-confirm-power-off", "Power Off", "power off", "_Power Off", "PowerOff")
+        move |_| match session_manager() {
+            Some(bus) => {
+                ctx.popover.popdown();
+                call_session_manager(&bus, "Shutdown", None);
+            }
+            None => confirm(&ctx, "qs-confirm-power-off", "Power Off", "power off", "_Power Off", "PowerOff"),
+        }
     ));
     let log_out = MenuItem::new("qs-log-out", "Log Out");
     log_out.connect_clicked(glib::clone!(
@@ -222,16 +238,10 @@ fn power_menu(ctx: &Rc<Ctx>) -> gtk::Revealer {
         ctx,
         move |_| {
             ctx.popover.popdown();
-            match system::session_bus().filter(|bus| has_owner(bus, SESSION_MANAGER)) {
-                // 1 = no confirmation.
-                Some(bus) => system::call(
-                    &bus,
-                    SESSION_MANAGER,
-                    "/org/gnome/SessionManager",
-                    SESSION_MANAGER,
-                    "Logout",
-                    Some((1u32,).to_variant()),
-                ),
+            match session_manager() {
+                // 0 = normal: gnome-session asks through its end-session
+                // dialog, as in GNOME.
+                Some(bus) => call_session_manager(&bus, "Logout", Some((0u32,).to_variant())),
                 None => ctx.client.log_out(),
             }
         }
@@ -311,6 +321,18 @@ fn has_owner(conn: &gio::DBusConnection, name: &str) -> bool {
     )
     .and_then(|reply| reply.child_value(0).get::<bool>())
     .unwrap_or(false)
+}
+
+/// The session bus, if gnome-session runs this session (the
+/// "GNOME Shell Plus (gnome-session)" entry). Then Log Out / Restart /
+/// Power Off go through gnome-session, which handles inhibitors and asks
+/// through its end-session dialog; otherwise the panel asks itself.
+fn session_manager() -> Option<gio::DBusConnection> {
+    system::session_bus().filter(|bus| has_owner(bus, SESSION_MANAGER))
+}
+
+fn call_session_manager(bus: &gio::DBusConnection, method: &str, args: Option<glib::Variant>) {
+    system::call(bus, SESSION_MANAGER, "/org/gnome/SessionManager", SESSION_MANAGER, method, args);
 }
 
 /// Calls a logind action (`Suspend`, `Reboot`, `PowerOff`), allowing polkit

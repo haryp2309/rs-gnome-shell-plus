@@ -17,6 +17,7 @@
 #define DESTROY_TIME          150
 #define DIALOG_DESTROY_TIME   100
 #define MINIMIZE_TIME         400
+#define SIZE_CHANGE_TIME      150
 #define SWITCH_WORKSPACE_TIME 250
 #define MAP_SCALE             0.9
 #define DESTROY_SCALE         0.8
@@ -30,9 +31,12 @@ typedef enum
   EFFECT_DESTROY,
   EFFECT_MINIMIZE,
   EFFECT_UNMINIMIZE,
+  EFFECT_SIZE_CHANGE,
 } EffectKind;
 
-static const char * const effect_names[] = { "map", "destroy", "minimize", "unminimize" };
+static const char * const effect_names[] = {
+  "map", "destroy", "minimize", "unminimize", "size-change",
+};
 
 /* The properties window effects animate; removed when an effect is killed. */
 static const char * const effect_properties[] = { "opacity", "scale-x", "scale-y" };
@@ -48,6 +52,35 @@ typedef struct
   gulong destroy_id;
   guint timeout_id;
 } Effect;
+
+/* A maximize / unmaximize / fullscreen / unfullscreen animation, after
+ * GNOME Shell's windowManager.js (_prepareAnimationInfo, _sizeChangedWindow,
+ * _sizeChangeWindowDone). size_change() snapshots the window at its old
+ * frame rectangle and freezes the actor; size_changed() (the new geometry is
+ * known) cross-fades the snapshot out while scaling it to the new rectangle,
+ * and scales the real window from the old rectangle to the new one. */
+typedef struct
+{
+  ShellPlusAnimations *self;
+  MetaWindowActor *actor;
+  ClutterActor *clone;      /* the old contents, owned */
+  MtkRectangle old_rect;    /* frame rectangle before the change */
+  MetaSizeChange change;
+  gboolean frozen;
+  gboolean running;         /* size_changed() seen, transitions started */
+  gulong completed_id;
+  gulong destroy_id;
+  guint timeout_id;
+} SizeChange;
+
+static const char * const size_change_names[] = {
+  "maximize", "unmaximize", "fullscreen", "unfullscreen", "monitor-move",
+};
+
+/* The properties a size change animates on the window actor. */
+static const char * const size_change_properties[] = {
+  "scale-x", "scale-y", "translation-x", "translation-y",
+};
 
 typedef struct
 {
@@ -65,6 +98,7 @@ struct _ShellPlusAnimations
   double slow_factor;
 
   GHashTable *effects;  /* MetaWindowActor -> Effect */
+  GHashTable *size_changes;  /* MetaWindowActor -> SizeChange */
 
   ClutterTimeline *switch_timeline;
   GArray *switch_entries;  /* SwitchEntry */
@@ -92,6 +126,7 @@ animations_free (gpointer data)
     }
   g_clear_pointer (&self->switch_entries, g_array_unref);
   g_clear_pointer (&self->effects, g_hash_table_unref);
+  g_clear_pointer (&self->size_changes, g_hash_table_unref);
   g_clear_object (&self->interface_settings);
   g_free (self);
 }
@@ -170,6 +205,9 @@ complete (MetaPlugin      *plugin,
       break;
     case EFFECT_UNMINIMIZE:
       meta_plugin_unminimize_completed (plugin, actor);
+      break;
+    case EFFECT_SIZE_CHANGE:
+      meta_plugin_size_change_completed (plugin, actor);
       break;
     }
 }
@@ -274,6 +312,9 @@ on_effect_actor_destroyed (ClutterActor *actor,
   g_free (effect);
 }
 
+static void kill_size_change (ShellPlusAnimations *self,
+                              MetaWindowActor     *actor);
+
 static void
 kill_effect (ShellPlusAnimations *self,
              MetaWindowActor     *actor)
@@ -282,6 +323,7 @@ kill_effect (ShellPlusAnimations *self,
 
   if (effect)
     finish_effect (effect, TRUE);
+  kill_size_change (self, actor);
 }
 
 typedef struct
@@ -519,6 +561,258 @@ animations_kill_window_effects (MetaPlugin      *plugin,
 }
 
 /* ------------------------------------------------------------------------ */
+/* Size changes (maximize, unmaximize, fullscreen, unfullscreen)            */
+
+static void
+size_change_free (SizeChange *sc)
+{
+  ClutterActor *a = CLUTTER_ACTOR (sc->actor);
+
+  g_hash_table_steal (sc->self->size_changes, sc->actor);
+  g_clear_signal_handler (&sc->completed_id, a);
+  g_clear_signal_handler (&sc->destroy_id, a);
+  g_clear_handle_id (&sc->timeout_id, g_source_remove);
+  if (sc->clone)
+    {
+      clutter_actor_destroy (sc->clone);
+      g_object_unref (sc->clone);
+    }
+  g_free (sc);
+}
+
+/* Ends @sc (naturally, interrupted, or never started), restores the actor
+ * and tells Mutter. Called exactly once per size change that wasn't
+ * dropped by its actor's destruction. */
+static void
+finish_size_change (SizeChange *sc,
+                    const char *how)
+{
+  ShellPlusAnimations *self = sc->self;
+  MetaWindowActor *actor = sc->actor;
+  ClutterActor *a = CLUTTER_ACTOR (actor);
+  gboolean frozen = sc->frozen;
+  guint i;
+
+  size_change_free (sc);
+
+  for (i = 0; i < G_N_ELEMENTS (size_change_properties); i++)
+    clutter_actor_remove_transition (a, size_change_properties[i]);
+  clutter_actor_set_scale (a, 1.0, 1.0);
+  clutter_actor_set_translation (a, 0.0f, 0.0f, 0.0f);
+  clutter_actor_set_pivot_point (a, 0.0f, 0.0f);
+  if (frozen)
+    meta_window_actor_thaw (actor);
+
+  log_actor_state (actor, EFFECT_SIZE_CHANGE, how);
+  complete (self->plugin, actor, EFFECT_SIZE_CHANGE);
+}
+
+static void
+kill_size_change (ShellPlusAnimations *self,
+                  MetaWindowActor     *actor)
+{
+  SizeChange *sc = g_hash_table_lookup (self->size_changes, actor);
+
+  if (sc)
+    finish_size_change (sc, "interrupted");
+}
+
+static void
+on_size_change_transitions_completed (ClutterActor *actor,
+                                      SizeChange   *sc)
+{
+  finish_size_change (sc, "completed");
+}
+
+static gboolean
+on_size_change_timeout (gpointer user_data)
+{
+  SizeChange *sc = user_data;
+
+  sc->timeout_id = 0;
+  if (sc->running)
+    g_warning ("size-change animation of '%s' did not finish; completing it",
+               window_title (sc->actor));
+  else
+    g_debug ("animation: size-change '%s' got no new size", window_title (sc->actor));
+  finish_size_change (sc, "interrupted");
+  return G_SOURCE_REMOVE;
+}
+
+/* Too late to report back to Mutter; just drop the snapshot. */
+static void
+on_size_change_actor_destroyed (ClutterActor *actor,
+                                SizeChange   *sc)
+{
+  g_debug ("animation: size-change '%s' dropped, actor destroyed",
+           window_title (sc->actor));
+  if (sc->frozen)
+    meta_window_actor_thaw (sc->actor);
+  size_change_free (sc);
+}
+
+static void
+size_change_not_animated (MetaPlugin      *plugin,
+                          MetaWindowActor *actor,
+                          MetaSizeChange   change)
+{
+  g_debug ("animation: size-change not animated '%s' (%s)", window_title (actor),
+           change < G_N_ELEMENTS (size_change_names) ? size_change_names[change] : "?");
+  meta_plugin_size_change_completed (plugin, actor);
+}
+
+static void
+animations_size_change (MetaPlugin      *plugin,
+                        MetaWindowActor *actor,
+                        MetaSizeChange   change,
+                        MtkRectangle    *old_frame_rect,
+                        MtkRectangle    *old_buffer_rect)
+{
+  ShellPlusAnimations *self = get_animations (plugin);
+  MetaWindow *window = meta_window_actor_get_meta_window (actor);
+  g_autoptr (GError) error = NULL;
+  ClutterContent *content;
+  SizeChange *sc;
+
+  if (self)
+    kill_effect (self, actor);
+
+  /* Like GNOME Shell: only normal windows, only real state changes. */
+  if (!self || !should_animate (self, actor) ||
+      meta_window_get_window_type (window) != META_WINDOW_NORMAL ||
+      change > META_SIZE_CHANGE_UNFULLSCREEN ||
+      !clutter_actor_is_mapped (CLUTTER_ACTOR (actor)) ||
+      old_frame_rect->width <= 0 || old_frame_rect->height <= 0)
+    {
+      size_change_not_animated (plugin, actor, change);
+      return;
+    }
+
+  content = meta_window_actor_paint_to_content (actor, old_frame_rect, &error);
+  if (!content)
+    {
+      g_debug ("animation: size-change snapshot of '%s' failed: %s", window_title (actor),
+               error ? error->message : "no content");
+      size_change_not_animated (plugin, actor, change);
+      return;
+    }
+
+  sc = g_new0 (SizeChange, 1);
+  sc->self = self;
+  sc->actor = actor;
+  sc->change = change;
+  sc->old_rect = *old_frame_rect;
+  sc->clone = clutter_actor_new ();
+  clutter_actor_set_name (sc->clone, "shellplus-size-change-snapshot");
+  clutter_actor_set_content (sc->clone, content);
+  g_object_unref (content);
+  clutter_actor_set_offscreen_redirect (sc->clone, CLUTTER_OFFSCREEN_REDIRECT_ALWAYS);
+  clutter_actor_set_position (sc->clone, old_frame_rect->x, old_frame_rect->y);
+  clutter_actor_set_size (sc->clone, old_frame_rect->width, old_frame_rect->height);
+  g_object_ref_sink (sc->clone);
+
+  /* Keep showing the old contents until the new size is known. */
+  meta_window_actor_freeze (actor);
+  sc->frozen = TRUE;
+
+  sc->destroy_id = g_signal_connect (actor, "destroy",
+                                     G_CALLBACK (on_size_change_actor_destroyed), sc);
+  /* If the window never takes its new size, don't keep it frozen. */
+  sc->timeout_id = g_timeout_add (scaled_duration (self, SIZE_CHANGE_TIME) + SAFETY_MARGIN_MS,
+                                  on_size_change_timeout, sc);
+  g_hash_table_insert (self->size_changes, actor, sc);
+
+  g_debug ("animation: size-change prepared '%s' (%s) from %d,%d,%dx%d",
+           window_title (actor), size_change_names[change], old_frame_rect->x,
+           old_frame_rect->y, old_frame_rect->width, old_frame_rect->height);
+}
+
+static void
+animations_size_changed (MetaPlugin      *plugin,
+                         MetaWindowActor *actor)
+{
+  ShellPlusAnimations *self = get_animations (plugin);
+  ClutterActor *a = CLUTTER_ACTOR (actor);
+  ClutterActor *parent;
+  SizeChange *sc;
+  MtkRectangle target, source;
+  double scale_x, scale_y;
+  guint duration;
+
+  sc = self ? g_hash_table_lookup (self->size_changes, actor) : NULL;
+  if (!sc || sc->running)
+    return;
+
+  meta_window_get_frame_rect (meta_window_actor_get_meta_window (actor), &target);
+  source = sc->old_rect;
+  parent = clutter_actor_get_parent (a);
+  if (target.width <= 0 || target.height <= 0 || !parent ||
+      (target.width == source.width && target.height == source.height &&
+       target.x == source.x && target.y == source.y))
+    {
+      finish_size_change (sc, "skipped");
+      return;
+    }
+
+  sc->running = TRUE;
+  scale_x = (double) target.width / source.width;
+  scale_y = (double) target.height / source.height;
+  duration = scaled_duration (self, SIZE_CHANGE_TIME);
+
+  /* The old contents, on top of the window, fading out on the way to the
+   * new rectangle. */
+  clutter_actor_insert_child_above (parent, sc->clone, a);
+  clutter_actor_save_easing_state (sc->clone);
+  clutter_actor_set_easing_duration (sc->clone, duration);
+  clutter_actor_set_easing_mode (sc->clone, CLUTTER_EASE_OUT_QUAD);
+  clutter_actor_set_position (sc->clone, target.x, target.y);
+  clutter_actor_set_scale (sc->clone, scale_x, scale_y);
+  clutter_actor_set_opacity (sc->clone, 0);
+  clutter_actor_restore_easing_state (sc->clone);
+
+  /* The window at its new size, squeezed into the old rectangle, growing
+   * (or shrinking) to its place. */
+  clutter_actor_set_pivot_point (a, 0.0f, 0.0f);
+  clutter_actor_set_translation (a, source.x - target.x, source.y - target.y, 0.0f);
+  clutter_actor_set_scale (a, 1.0 / scale_x, 1.0 / scale_y);
+  log_actor_state (actor, EFFECT_SIZE_CHANGE, "started");
+
+  clutter_actor_save_easing_state (a);
+  clutter_actor_set_easing_duration (a, duration);
+  clutter_actor_set_easing_mode (a, CLUTTER_EASE_OUT_QUAD);
+  clutter_actor_set_scale (a, 1.0, 1.0);
+  clutter_actor_set_translation (a, 0.0f, 0.0f, 0.0f);
+  clutter_actor_restore_easing_state (a);
+
+  /* Thaw after the transitions are set up, so the first new frame is
+   * already drawn at the old rectangle. */
+  if (sc->frozen)
+    {
+      sc->frozen = FALSE;
+      meta_window_actor_thaw (actor);
+    }
+
+  /* Thawing may have killed us (it can sync the geometry). */
+  sc = g_hash_table_lookup (self->size_changes, actor);
+  if (!sc)
+    return;
+
+  if (!clutter_actor_get_transition (a, "scale-x") &&
+      !clutter_actor_get_transition (a, "scale-y") &&
+      !clutter_actor_get_transition (a, "translation-x") &&
+      !clutter_actor_get_transition (a, "translation-y"))
+    {
+      finish_size_change (sc, "skipped");
+      return;
+    }
+
+  sc->completed_id = g_signal_connect (a, "transitions-completed",
+                                       G_CALLBACK (on_size_change_transitions_completed), sc);
+  g_clear_handle_id (&sc->timeout_id, g_source_remove);
+  sc->timeout_id = g_timeout_add (duration + SAFETY_MARGIN_MS, on_size_change_timeout, sc);
+}
+
+/* ------------------------------------------------------------------------ */
 /* Workspace switch                                                         */
 
 /* The windows of both workspaces slide sideways, like GNOME Shell's
@@ -685,6 +979,8 @@ shellplus_animations_install (MetaPluginClass *plugin_class)
   plugin_class->destroy = animations_destroy;
   plugin_class->minimize = animations_minimize;
   plugin_class->unminimize = animations_unminimize;
+  plugin_class->size_change = animations_size_change;
+  plugin_class->size_changed = animations_size_changed;
   plugin_class->switch_workspace = animations_switch_workspace;
   plugin_class->kill_window_effects = animations_kill_window_effects;
   plugin_class->kill_switch_workspace = animations_kill_switch_workspace;
@@ -703,6 +999,7 @@ shellplus_animations_attach (MetaPlugin                  *plugin,
   self->skip_data = user_data;
   self->interface_settings = g_settings_new ("org.gnome.desktop.interface");
   self->effects = g_hash_table_new (NULL, NULL);
+  self->size_changes = g_hash_table_new (NULL, NULL);
   self->switch_entries = g_array_new (FALSE, FALSE, sizeof (SwitchEntry));
   self->slow_factor = slow && *slow ? g_ascii_strtod (slow, NULL) : 1.0;
   if (self->slow_factor <= 0.0)
